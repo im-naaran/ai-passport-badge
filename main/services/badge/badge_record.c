@@ -3,7 +3,6 @@
 
 enum {
     BADGE_MAGIC = 0x47444142u,
-    BADGE_SCHEMA_CURRENT = BADGE_RECORD_SCHEMA_2,
     BADGE_COMMIT_MARKER = 0xC04D17EDu,
     OFFSET_SEQUENCE = 8,
     OFFSET_NAME_LENGTH = 12,
@@ -11,11 +10,14 @@ enum {
     OFFSET_WIDTH = 16,
     OFFSET_HEIGHT = 18,
     OFFSET_STRIDE = 20,
+    OFFSET_BIO_LENGTH = 22,
     OFFSET_IMAGE_LENGTH = 24,
-    OFFSET_PAYLOAD_CRC = 28,
-    OFFSET_HEADER_CRC = 32,
-    OFFSET_COMMIT = 36,
+    OFFSET_SHAPE = 28,
+    OFFSET_RESERVED = 30,
 };
+
+_Static_assert(BADGE_RECORD_COMMIT_OFFSET + 4 == BADGE_RECORD_HEADER_SIZE,
+               "badge record header layout mismatch");
 
 static uint16_t read_u16(const uint8_t *p) {
     return (uint16_t)p[0] | (uint16_t)((uint16_t)p[1] << 8);
@@ -86,6 +88,11 @@ bool badge_bio_valid(const uint8_t *bio, size_t length) {
     return true;
 }
 
+bool badge_photo_shape_valid(badge_photo_shape_t shape) {
+    return shape == BADGE_PHOTO_SHAPE_SQUARE || shape == BADGE_PHOTO_SHAPE_ROUNDED ||
+           shape == BADGE_PHOTO_SHAPE_CIRCLE;
+}
+
 bool badge_sequence_newer(uint32_t candidate, uint32_t current) {
     // Signed subtraction keeps ordering valid across the uint32_t wrap boundary.
     return candidate != current && (int32_t)(candidate - current) > 0;
@@ -110,9 +117,8 @@ uint32_t badge_crc32(const uint8_t *data, size_t length) {
 
 static bool meta_valid(const badge_record_meta_t *meta) {
     return meta && meta->name_length > 0 && meta->name_length <= BADGE_NAME_MAX_BYTES &&
-        (meta->schema == BADGE_RECORD_SCHEMA_1 || meta->schema == BADGE_RECORD_SCHEMA_2) &&
-        (meta->schema == BADGE_RECORD_SCHEMA_2 || meta->bio_length == 0) &&
         meta->bio_length <= BADGE_BIO_MAX_BYTES &&
+        badge_photo_shape_valid(meta->shape) &&
         meta->image_format == BADGE_IMAGE_FORMAT_RGB565_LE && meta->width == BADGE_IMAGE_WIDTH &&
         meta->height == BADGE_IMAGE_HEIGHT && meta->stride == BADGE_IMAGE_STRIDE &&
         meta->image_length == BADGE_IMAGE_BYTES &&
@@ -123,7 +129,7 @@ static bool meta_valid(const badge_record_meta_t *meta) {
 void badge_record_prepare(uint8_t header[BADGE_RECORD_HEADER_SIZE], const badge_record_meta_t *meta) {
     memset(header, 0xFF, BADGE_RECORD_HEADER_SIZE);
     write_u32(header, BADGE_MAGIC);
-    write_u16(header + 4, BADGE_SCHEMA_CURRENT);
+    write_u16(header + 4, BADGE_RECORD_SCHEMA);
     write_u16(header + 6, BADGE_RECORD_HEADER_SIZE);
     write_u32(header + OFFSET_SEQUENCE, meta->sequence);
     write_u16(header + OFFSET_NAME_LENGTH, meta->name_length);
@@ -131,14 +137,17 @@ void badge_record_prepare(uint8_t header[BADGE_RECORD_HEADER_SIZE], const badge_
     write_u16(header + OFFSET_WIDTH, meta->width);
     write_u16(header + OFFSET_HEIGHT, meta->height);
     write_u16(header + OFFSET_STRIDE, meta->stride);
-    write_u16(header + 22, meta->bio_length);
+    write_u16(header + OFFSET_BIO_LENGTH, meta->bio_length);
     write_u32(header + OFFSET_IMAGE_LENGTH, meta->image_length);
+    write_u16(header + OFFSET_SHAPE, (uint16_t)meta->shape);
+    write_u16(header + OFFSET_RESERVED, 0);
 }
 
 void badge_record_finalize(uint8_t header[BADGE_RECORD_HEADER_SIZE], uint32_t payload_crc) {
-    write_u32(header + OFFSET_PAYLOAD_CRC, payload_crc);
+    write_u32(header + BADGE_RECORD_PAYLOAD_CRC_OFFSET, payload_crc);
     // Header CRC covers stable metadata and payload CRC, but excludes itself and the final commit marker.
-    write_u32(header + OFFSET_HEADER_CRC, badge_crc32(header, OFFSET_HEADER_CRC));
+    write_u32(header + BADGE_RECORD_HEADER_CRC_OFFSET,
+              badge_crc32(header, BADGE_RECORD_HEADER_CRC_OFFSET));
 }
 
 void badge_record_mark_committed(uint8_t commit_bytes[4]) {
@@ -149,10 +158,11 @@ bool badge_record_decode(const uint8_t header[BADGE_RECORD_HEADER_SIZE], badge_r
                          uint32_t *payload_crc) {
     if (!header || read_u32(header) != BADGE_MAGIC ||
         read_u16(header + 6) != BADGE_RECORD_HEADER_SIZE ||
-        read_u32(header + OFFSET_COMMIT) != BADGE_COMMIT_MARKER ||
-        read_u32(header + OFFSET_HEADER_CRC) != badge_crc32(header, OFFSET_HEADER_CRC)) return false;
-    uint16_t schema = read_u16(header + 4);
-    if (schema != BADGE_RECORD_SCHEMA_1 && schema != BADGE_RECORD_SCHEMA_2) return false;
+        read_u32(header + BADGE_RECORD_COMMIT_OFFSET) != BADGE_COMMIT_MARKER ||
+        read_u32(header + BADGE_RECORD_HEADER_CRC_OFFSET) !=
+            badge_crc32(header, BADGE_RECORD_HEADER_CRC_OFFSET)) return false;
+    if (read_u16(header + 4) != BADGE_RECORD_SCHEMA ||
+        read_u16(header + OFFSET_RESERVED) != 0) return false;
     badge_record_meta_t decoded = {
         .sequence = read_u32(header + OFFSET_SEQUENCE),
         .name_length = read_u16(header + OFFSET_NAME_LENGTH),
@@ -161,14 +171,12 @@ bool badge_record_decode(const uint8_t header[BADGE_RECORD_HEADER_SIZE], badge_r
         .height = read_u16(header + OFFSET_HEIGHT),
         .stride = read_u16(header + OFFSET_STRIDE),
         .image_length = read_u32(header + OFFSET_IMAGE_LENGTH),
-        .schema = schema,
-        .bio_length = schema == BADGE_RECORD_SCHEMA_2 ? read_u16(header + 22) : 0,
+        .bio_length = read_u16(header + OFFSET_BIO_LENGTH),
+        .shape = (badge_photo_shape_t)read_u16(header + OFFSET_SHAPE),
     };
-    // Schema 1 reserved this field; accepting a non-zero value would shift its image payload.
-    if ((schema == BADGE_RECORD_SCHEMA_1 && read_u16(header + 22) != 0) ||
-        !meta_valid(&decoded)) return false;
+    if (!meta_valid(&decoded)) return false;
     if (meta) *meta = decoded;
-    if (payload_crc) *payload_crc = read_u32(header + OFFSET_PAYLOAD_CRC);
+    if (payload_crc) *payload_crc = read_u32(header + BADGE_RECORD_PAYLOAD_CRC_OFFSET);
     return true;
 }
 

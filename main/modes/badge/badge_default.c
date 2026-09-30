@@ -17,5 +17,6 @@ badge_profile_snapshot_t badge_default_profile(void) {
         .sequence = 0,
         .is_default = true,
         .bio = BADGE_DEFAULT_TAGLINE,
+        .shape = BADGE_PHOTO_SHAPE_SQUARE,
     };
 }

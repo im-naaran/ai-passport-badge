@@ -1,12 +1,6 @@
 #include "badge_store.h"
 #include <string.h>
 
-enum {
-    PAYLOAD_CRC_OFFSET = 28,
-    HEADER_CRC_OFFSET = 32,
-    COMMIT_OFFSET = 36,
-};
-
 static badge_store_result_t refresh(badge_store_t *store) {
     badge_record_view_t views[2];
     bool valid[2];
@@ -37,6 +31,7 @@ static badge_store_result_t refresh(badge_store_t *store) {
         .sequence = record->meta.sequence,
         .is_default = false,
         .bio = store->active_bio,
+        .shape = record->meta.shape,
     };
     return BADGE_STORE_OK;
 }
@@ -47,7 +42,8 @@ static bool defaults_valid(const badge_profile_snapshot_t *defaults) {
         badge_bio_valid((const uint8_t *)defaults->bio, strlen(defaults->bio)) &&
         defaults->width == BADGE_IMAGE_WIDTH && defaults->height == BADGE_IMAGE_HEIGHT &&
         defaults->stride == BADGE_IMAGE_STRIDE &&
-        defaults->image_format == BADGE_IMAGE_FORMAT_RGB565_LE;
+        defaults->image_format == BADGE_IMAGE_FORMAT_RGB565_LE &&
+        badge_photo_shape_valid(defaults->shape);
 }
 
 badge_store_result_t badge_store_init_defaults(badge_store_t *store, badge_profile_snapshot_t defaults) {
@@ -79,7 +75,8 @@ badge_store_result_t badge_store_begin_update(badge_store_t *store, const badge_
         !badge_bio_valid((const uint8_t *)meta->bio, meta->bio_length) ||
         meta->image_format != BADGE_IMAGE_FORMAT_RGB565_LE || meta->width != BADGE_IMAGE_WIDTH ||
         meta->height != BADGE_IMAGE_HEIGHT || meta->stride != BADGE_IMAGE_STRIDE ||
-        meta->image_length != BADGE_IMAGE_BYTES) return BADGE_STORE_INVALID;
+        meta->image_length != BADGE_IMAGE_BYTES || !badge_photo_shape_valid(meta->shape))
+        return BADGE_STORE_INVALID;
     store->pending_slot = store->active_slot == 0 ? 1 : 0;
     store->pending_meta = (badge_record_meta_t){
         .sequence = store->snapshot.is_default ? 1 : store->snapshot.sequence + 1,
@@ -89,8 +86,8 @@ badge_store_result_t badge_store_begin_update(badge_store_t *store, const badge_
         .height = meta->height,
         .stride = meta->stride,
         .image_length = meta->image_length,
-        .schema = BADGE_RECORD_SCHEMA_2,
         .bio_length = (uint16_t)meta->bio_length,
+        .shape = meta->shape,
     };
     memcpy(store->pending_name, meta->name, meta->name_length);
     store->pending_name[meta->name_length] = '\0';
@@ -141,7 +138,8 @@ badge_store_result_t badge_store_finish(badge_store_t *store) {
     badge_record_prepare(header, &store->pending_meta);
     badge_record_finalize(header, badge_crc32_finish(store->pending_crc));
     badge_store_result_t result = store->backend.write(store->backend.context,
-        slot_offset + PAYLOAD_CRC_OFFSET, header + PAYLOAD_CRC_OFFSET, 8);
+        slot_offset + BADGE_RECORD_PAYLOAD_CRC_OFFSET,
+        header + BADGE_RECORD_PAYLOAD_CRC_OFFSET, 8);
     uint8_t verify[1024];
     uint32_t crc_state = badge_crc32_start();
     size_t payload_size = store->pending_meta.name_length + store->pending_meta.bio_length +
@@ -158,7 +156,8 @@ badge_store_result_t badge_store_finish(badge_store_t *store) {
     uint8_t committed[4];
     badge_record_mark_committed(committed);
     if (result == BADGE_STORE_OK)
-        result = store->backend.write(store->backend.context, slot_offset + COMMIT_OFFSET,
+        result = store->backend.write(store->backend.context,
+                                      slot_offset + BADGE_RECORD_COMMIT_OFFSET,
                                       committed, sizeof(committed));
     store->busy = false;
     if (result != BADGE_STORE_OK) return result;

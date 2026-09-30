@@ -20,6 +20,7 @@ typedef struct {
     uint32_t sequence;
     bool is_default;
     const char *bio;
+    badge_photo_shape_t shape;
 } badge_profile_snapshot_t;
 
 typedef struct {
@@ -41,6 +42,7 @@ typedef struct {
     uint32_t image_length;
     const char *bio;
     size_t bio_length;
+    badge_photo_shape_t shape;
 } badge_upload_meta_t;
 
 typedef struct badge_store {

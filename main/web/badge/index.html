@@ -6,13 +6,17 @@
   <title>AI Passport 工牌</title>
   <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate">
   <meta http-equiv="Pragma" content="no-cache">
-  <link rel="stylesheet" href="/style.css?v=2026092801">
-  <script defer src="/badge_image.js?v=2026092801"></script>
-  <script defer src="/app.js?v=2026092801"></script>
+  <link rel="stylesheet" href="/style.css?v=2026093001">
+  <script defer src="/badge_image.js?v=2026093001"></script>
+  <script defer src="/app.js?v=2026093001"></script>
 </head>
 <body>
   <main>
     <header><p class="eyebrow">AI PASSPORT</p><h1>设置我的工牌</h1><p id="connection">正在连接设备…</p></header>
+    <nav class="tabs" aria-label="配置类型">
+      <button id="profile-tab" type="button" class="tab active" aria-selected="true">工牌配置</button>
+      <button id="personalization-tab" type="button" class="tab" aria-selected="false">个性化配置</button>
+    </nav>
     <form id="profile-form">
       <section class="card photo-card">
         <h2>照片</h2>
@@ -40,6 +44,24 @@
       </section>
       <p id="message" role="status" aria-live="polite"></p>
       <button id="save" type="submit" class="primary" disabled>保存工牌</button>
+    </form>
+    <form id="personalization-form" hidden>
+      <section class="card photo-card">
+        <h2>个性化图片</h2>
+        <div id="slot-picker" class="slot-picker" aria-label="个性化图片槽位">
+          <button type="button" class="slot active" data-slot="1" aria-pressed="true">槽位 1 · 空</button>
+          <button type="button" class="slot" data-slot="2" aria-pressed="false">槽位 2 · 空</button>
+          <button type="button" class="slot" data-slot="3" aria-pressed="false">槽位 3 · 空</button>
+        </div>
+        <canvas id="personalization-preview" class="custom-canvas" width="240" height="320" aria-label="个性化图片预览"></canvas>
+        <label class="file-button">选择图片<input id="personalization-photo" type="file" accept="image/jpeg,image/png,image/*"></label>
+        <label class="zoom">缩放<input id="personalization-zoom" type="range" min="1" max="4" step="0.01" value="1"></label>
+        <button id="personalization-rotate" type="button" class="secondary">旋转 90°</button>
+        <p class="hint">画布与设备屏幕均为 240×320；拖动图片调整位置，原图不会上传。</p>
+      </section>
+      <p id="personalization-message" role="status" aria-live="polite"></p>
+      <button id="personalization-save" type="submit" class="primary" disabled>保存到槽位 1</button>
+      <button id="personalization-clear" type="button" class="danger" disabled>清空槽位 1</button>
     </form>
   </main>
 </body>

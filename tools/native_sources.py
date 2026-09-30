@@ -11,6 +11,7 @@ env.Append(CPPPATH=[
     str(root / "main"),
     str(root / "main" / "services" / "config"),
     str(root / "main" / "services" / "badge"),
+    str(root / "main" / "services" / "custom"),
     str(root / "main" / "services" / "display"),
     str(root / "main" / "settings"),
 ])
@@ -26,6 +27,11 @@ env.BuildSources(
         "+<badge_http_protocol.c>",
         "+<badge_http_server.c>",
     ],
+)
+env.BuildSources(
+    "$BUILD_DIR/custom_storage",
+    str(root / "main" / "services" / "custom"),
+    src_filter=["+<custom_record.c>", "+<custom_store.c>"],
 )
 env.BuildSources(
     "$BUILD_DIR/config",

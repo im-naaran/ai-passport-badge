@@ -2,6 +2,7 @@
 
 #include "badge_http_protocol.h"
 #include "badge_wifi_service.h"
+#include "services/custom/custom_store.h"
 
 typedef struct {
     const uint8_t *data;
@@ -16,8 +17,12 @@ typedef struct {
     badge_http_asset_t app_js;
 } badge_http_assets_t;
 
-typedef enum { BADGE_HTTP_GET, BADGE_HTTP_POST } badge_http_method_t;
-enum { BADGE_HTTP_READ_ERROR = -1, BADGE_HTTP_READ_TIMEOUT = -2 };
+typedef enum { BADGE_HTTP_GET, BADGE_HTTP_POST, BADGE_HTTP_DELETE } badge_http_method_t;
+enum {
+    BADGE_HTTP_READ_ERROR = -1,
+    BADGE_HTTP_READ_TIMEOUT = -2,
+    BADGE_HTTP_SERVER_TASK_STACK_BYTES = 8192,
+};
 
 typedef struct {
     badge_http_method_t method;
@@ -37,6 +42,7 @@ typedef struct {
 
 typedef struct badge_http_server {
     badge_store_t *store;
+    custom_store_t *custom_store;
     badge_wifi_service_t *wifi;
     badge_http_assets_t assets;
     uint64_t session_token;
@@ -48,6 +54,8 @@ typedef struct badge_http_server {
 void badge_http_server_init(badge_http_server_t *server, badge_store_t *store,
                             badge_http_assets_t assets,
                             int64_t (*now_us)(void *context), void *clock_context);
+void badge_http_server_attach_personalization(badge_http_server_t *server,
+                                              custom_store_t *store);
 void badge_http_server_begin_session(badge_http_server_t *server,
                                      badge_wifi_service_t *wifi, uint64_t token);
 int badge_http_server_handle(badge_http_server_t *server,

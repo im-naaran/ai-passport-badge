@@ -12,6 +12,7 @@ static size_t image_bytes;
 static badge_store_result_t begin_result, write_result, finish_result;
 static char received_name[BADGE_NAME_MAX_BYTES + 1];
 static char received_bio[BADGE_BIO_MAX_BYTES + 1];
+static badge_photo_shape_t received_shape;
 static uint8_t store_flash[BADGE_PARTITION_SIZE];
 static uint8_t default_image[BADGE_IMAGE_BYTES];
 static badge_store_t profile_store;
@@ -67,6 +68,7 @@ static badge_store_result_t begin(void *context, const badge_upload_meta_t *meta
     TEST_ASSERT_LESS_OR_EQUAL(BADGE_BIO_MAX_BYTES, meta->bio_length);
     if (meta->bio_length) memcpy(received_bio, meta->bio, meta->bio_length);
     received_bio[meta->bio_length] = '\0';
+    received_shape = meta->shape;
     return begin_result;
 }
 static badge_store_result_t write_image(void *context, const uint8_t *data, size_t length) {
@@ -85,8 +87,9 @@ static badge_http_writer_t writer(void) {
     return (badge_http_writer_t){NULL, begin, write_image, finish, abort_write};
 }
 static size_t make_body(const uint8_t *name, size_t name_length,
-                        const uint8_t *bio, size_t bio_length) {
-    badge_http_envelope_header(body, (uint16_t)name_length, (uint16_t)bio_length);
+                        const uint8_t *bio, size_t bio_length,
+                        badge_photo_shape_t shape) {
+    badge_http_envelope_header(body, (uint16_t)name_length, (uint16_t)bio_length, shape);
     memcpy(body + BADGE_HTTP_ENVELOPE_HEADER_SIZE, name, name_length);
     memcpy(body + BADGE_HTTP_ENVELOPE_HEADER_SIZE + name_length, bio, bio_length);
     for (size_t i = 0; i < BADGE_IMAGE_BYTES; ++i)
@@ -94,16 +97,20 @@ static size_t make_body(const uint8_t *name, size_t name_length,
             (uint8_t)(i & 0xFFu);
     return BADGE_HTTP_ENVELOPE_HEADER_SIZE + name_length + bio_length + BADGE_IMAGE_BYTES;
 }
-static size_t make_v1_body(const uint8_t *name, size_t name_length) {
+static size_t make_legacy_body(uint16_t version, const uint8_t *name, size_t name_length) {
+    const size_t header_size = version == 1 ? 12 : 14;
     body[0] = 'B'; body[1] = 'P'; body[2] = 'R'; body[3] = 'F';
-    body[4] = 1; body[5] = 0;
+    body[4] = (uint8_t)version; body[5] = 0;
     body[6] = (uint8_t)name_length; body[7] = (uint8_t)(name_length >> 8);
+    if (version == 2) { body[8] = 0; body[9] = 0; }
     uint32_t image_length = BADGE_IMAGE_BYTES;
-    for (unsigned i = 0; i < 4; ++i) body[8 + i] = (uint8_t)(image_length >> (i * 8));
-    memcpy(body + BADGE_HTTP_ENVELOPE_V1_HEADER_SIZE, name, name_length);
+    size_t image_length_offset = version == 1 ? 8 : 10;
+    for (unsigned i = 0; i < 4; ++i)
+        body[image_length_offset + i] = (uint8_t)(image_length >> (i * 8));
+    memcpy(body + header_size, name, name_length);
     for (size_t i = 0; i < BADGE_IMAGE_BYTES; ++i)
-        body[BADGE_HTTP_ENVELOPE_V1_HEADER_SIZE + name_length + i] = (uint8_t)(i & 0xFFu);
-    return BADGE_HTTP_ENVELOPE_V1_HEADER_SIZE + name_length + BADGE_IMAGE_BYTES;
+        body[header_size + name_length + i] = (uint8_t)(i & 0xFFu);
+    return header_size + name_length + BADGE_IMAGE_BYTES;
 }
 static badge_http_parser_t parser(void) {
     badge_http_parser_t value;
@@ -118,13 +125,14 @@ void setUp(void) {
     memset(received_name, 0, sizeof(received_name));
     memset(received_bio, 0, sizeof(received_bio));
     body_length = make_body((const uint8_t *)"张三", 6,
-                            (const uint8_t *)"保持好奇", 12);
+                            (const uint8_t *)"保持好奇", 12,
+                            BADGE_PHOTO_SHAPE_ROUNDED);
     memset(store_flash, 0xff, sizeof(store_flash));
     memset(default_image, 0, sizeof(default_image));
     badge_profile_snapshot_t defaults = {.name = "AI Passport", .image = default_image,
         .width = BADGE_IMAGE_WIDTH, .height = BADGE_IMAGE_HEIGHT, .stride = BADGE_IMAGE_STRIDE,
         .image_format = BADGE_IMAGE_FORMAT_RGB565_LE, .is_default = true,
-        .bio = "我的 AI 身份"};
+        .bio = "我的 AI 身份", .shape = BADGE_PHOTO_SHAPE_SQUARE};
     badge_store_backend_t backend = {NULL, store_flash, sizeof(store_flash),
                                      flash_erase, flash_write, flash_read};
     badge_store_init(&profile_store, backend, defaults);
@@ -157,6 +165,7 @@ static void test_valid_body_one_byte_chunks_crosses_every_boundary(void) {
     TEST_ASSERT_EQUAL(0, abort_calls); TEST_ASSERT_EQUAL(BADGE_IMAGE_BYTES, image_bytes);
     TEST_ASSERT_EQUAL_STRING("张三", received_name);
     TEST_ASSERT_EQUAL_STRING("保持好奇", received_bio);
+    TEST_ASSERT_EQUAL(BADGE_PHOTO_SHAPE_ROUNDED, received_shape);
     TEST_ASSERT_EQUAL(BADGE_HTTP_COMPLETE, badge_http_parser_end(&p, BADGE_HTTP_END_DISCONNECTED));
 }
 
@@ -173,13 +182,26 @@ static void test_header_name_and_bio_split_positions(void) {
     }
 }
 
+static void test_all_shapes_reach_writer(void) {
+    for (badge_photo_shape_t shape = BADGE_PHOTO_SHAPE_SQUARE;
+         shape <= BADGE_PHOTO_SHAPE_CIRCLE; shape = (badge_photo_shape_t)(shape + 1)) {
+        setUp();
+        body_length = make_body((const uint8_t *)"张三", 6,
+                                (const uint8_t *)"", 0, shape);
+        badge_http_parser_t p = parser();
+        TEST_ASSERT_EQUAL(BADGE_HTTP_COMPLETE,
+                          badge_http_parser_feed(&p, body, body_length));
+        TEST_ASSERT_EQUAL(shape, received_shape);
+    }
+}
+
 static void test_token_and_content_length_rejected_before_writer(void) {
     badge_http_parser_t p;
     TEST_ASSERT_EQUAL(BADGE_HTTP_ERROR_TOKEN,
         badge_http_parser_init(&p, body_length, TOKEN + 1, TOKEN, writer()));
     TEST_ASSERT_EQUAL(BADGE_HTTP_ERROR_TOKEN, badge_http_parser_feed(&p, body, body_length));
     TEST_ASSERT_EQUAL(BADGE_HTTP_ERROR_LENGTH,
-        badge_http_parser_init(&p, BADGE_HTTP_ENVELOPE_V1_HEADER_SIZE + BADGE_IMAGE_BYTES,
+        badge_http_parser_init(&p, BADGE_HTTP_ENVELOPE_HEADER_SIZE + BADGE_IMAGE_BYTES,
                                TOKEN, TOKEN, writer()));
     TEST_ASSERT_EQUAL(BADGE_HTTP_ERROR_LENGTH,
         badge_http_parser_init(&p, BADGE_HTTP_BODY_MAX + 1, TOKEN, TOKEN, writer()));
@@ -192,7 +214,7 @@ static void test_bad_header_lengths_and_invalid_name(void) {
     TEST_ASSERT_EQUAL(BADGE_HTTP_ERROR_PROTOCOL,
                       badge_http_parser_feed(&p, body, BADGE_HTTP_ENVELOPE_HEADER_SIZE));
 
-    setUp(); p = parser(); body[4] = 3;
+    setUp(); p = parser(); body[4] = 2;
     TEST_ASSERT_EQUAL(BADGE_HTTP_ERROR_PROTOCOL,
                       badge_http_parser_feed(&p, body, BADGE_HTTP_ENVELOPE_HEADER_SIZE));
 
@@ -200,31 +222,43 @@ static void test_bad_header_lengths_and_invalid_name(void) {
     TEST_ASSERT_EQUAL(BADGE_HTTP_ERROR_LENGTH,
                       badge_http_parser_feed(&p, body, BADGE_HTTP_ENVELOPE_HEADER_SIZE));
 
-    setUp(); p = parser(); body[10] = 0;
+    setUp(); p = parser(); body[12] = 0;
     TEST_ASSERT_EQUAL(BADGE_HTTP_ERROR_LENGTH,
                       badge_http_parser_feed(&p, body, BADGE_HTTP_ENVELOPE_HEADER_SIZE));
 
+    setUp(); p = parser(); body[10] = 3;
+    TEST_ASSERT_EQUAL(BADGE_HTTP_ERROR_SHAPE,
+                      badge_http_parser_feed(&p, body, BADGE_HTTP_ENVELOPE_HEADER_SIZE));
+
+    setUp(); p = parser(); body[11] = 1;
+    TEST_ASSERT_EQUAL(BADGE_HTTP_ERROR_PROTOCOL,
+                      badge_http_parser_feed(&p, body, BADGE_HTTP_ENVELOPE_HEADER_SIZE));
+
     const uint8_t bad_name[] = {'a', '\n'};
-    body_length = make_body(bad_name, sizeof(bad_name), (const uint8_t *)"", 0); p = parser();
+    body_length = make_body(bad_name, sizeof(bad_name), (const uint8_t *)"", 0,
+                            BADGE_PHOTO_SHAPE_SQUARE); p = parser();
     TEST_ASSERT_EQUAL(BADGE_HTTP_ERROR_NAME,
         badge_http_parser_feed(&p, body, BADGE_HTTP_ENVELOPE_HEADER_SIZE + sizeof(bad_name)));
     TEST_ASSERT_EQUAL(0, begin_calls);
 
     const uint8_t bad_bio[] = {'a', '\n'};
-    body_length = make_body((const uint8_t *)"张三", 6, bad_bio, sizeof(bad_bio)); p = parser();
+    body_length = make_body((const uint8_t *)"张三", 6, bad_bio, sizeof(bad_bio),
+                            BADGE_PHOTO_SHAPE_SQUARE); p = parser();
     TEST_ASSERT_EQUAL(BADGE_HTTP_ERROR_BIO,
         badge_http_parser_feed(&p, body,
             BADGE_HTTP_ENVELOPE_HEADER_SIZE + 6 + sizeof(bad_bio)));
     TEST_ASSERT_EQUAL(0, begin_calls);
 }
 
-static void test_v1_body_is_accepted_with_empty_bio(void) {
-    body_length = make_v1_body((const uint8_t *)"旧网页", 9);
-    badge_http_parser_t p = parser();
-    TEST_ASSERT_EQUAL(BADGE_HTTP_COMPLETE, badge_http_parser_feed(&p, body, body_length));
-    TEST_ASSERT_EQUAL_STRING("旧网页", received_name);
-    TEST_ASSERT_EQUAL_STRING("", received_bio);
-    TEST_ASSERT_EQUAL(BADGE_IMAGE_BYTES, image_bytes);
+static void test_v1_and_v2_bodies_are_rejected_before_writer(void) {
+    for (uint16_t version = 1; version <= 2; ++version) {
+        body_length = make_legacy_body(version, (const uint8_t *)"旧网页", 9);
+        badge_http_parser_t p = parser();
+        TEST_ASSERT_EQUAL(BADGE_HTTP_ERROR_PROTOCOL,
+                          badge_http_parser_feed(&p, body, body_length));
+        TEST_ASSERT_EQUAL(0, begin_calls);
+        TEST_ASSERT_EQUAL(0, abort_calls);
+    }
 }
 
 static void test_truncated_timeout_cancel_and_extra_data(void) {
@@ -291,13 +325,29 @@ static void test_server_get_routes_content_types_and_not_found(void) {
         TEST_ASSERT_EQUAL(200, badge_http_server_handle(&http_server, &request, response));
         TEST_ASSERT_EQUAL(BADGE_WIFI_CLIENT_CONNECTED, wifi_service.machine.state);
         TEST_ASSERT_NOT_NULL(strstr(response_type, types[i]));
-        if (strcmp(paths[i], "/api/profile") == 0)
+        if (strcmp(paths[i], "/api/profile") == 0) {
             TEST_ASSERT_NOT_NULL(strstr((char *)response_body, "\"bio\":\"我的 AI 身份\""));
+            TEST_ASSERT_NOT_NULL(strstr((char *)response_body, "\"shape\":\"square\""));
+        }
     }
     TEST_ASSERT_EQUAL(BADGE_IMAGE_BYTES, response_length);
     badge_http_request_t missing = get_request("/missing");
     TEST_ASSERT_EQUAL(404, badge_http_server_handle(&http_server, &missing, response));
     TEST_ASSERT_NOT_NULL(strstr((char *)response_body, "not_found"));
+}
+
+static void test_server_profile_returns_all_shape_names(void) {
+    static const char *const names[] = {"square", "rounded", "circle"};
+    badge_http_response_t response = {NULL, capture_response};
+    badge_http_request_t request = get_request("/api/profile");
+    for (badge_photo_shape_t shape = BADGE_PHOTO_SHAPE_SQUARE;
+         shape <= BADGE_PHOTO_SHAPE_CIRCLE; shape = (badge_photo_shape_t)(shape + 1)) {
+        profile_store.snapshot.shape = shape;
+        TEST_ASSERT_EQUAL(200, badge_http_server_handle(&http_server, &request, response));
+        char expected[32];
+        snprintf(expected, sizeof(expected), "\"shape\":\"%s\"", names[shape]);
+        TEST_ASSERT_NOT_NULL(strstr((char *)response_body, expected));
+    }
 }
 
 static badge_http_request_t post_request(body_reader_t *reader, const char *token,
@@ -315,8 +365,14 @@ static void test_server_success_streams_commits_and_keeps_hotspot_active(void) {
     TEST_ASSERT_EQUAL(200, badge_http_server_handle(&http_server, &request, response));
     TEST_ASSERT_EQUAL_STRING("张三", badge_store_snapshot(&profile_store)->name);
     TEST_ASSERT_EQUAL_STRING("保持好奇", badge_store_snapshot(&profile_store)->bio);
+    TEST_ASSERT_EQUAL(BADGE_PHOTO_SHAPE_ROUNDED,
+                      badge_store_snapshot(&profile_store)->shape);
     TEST_ASSERT_EQUAL(BADGE_WIFI_CLIENT_CONNECTED, wifi_service.machine.state);
     TEST_ASSERT_TRUE(wifi_service.machine.save_success);
+
+    badge_http_request_t get_profile = get_request("/api/profile");
+    TEST_ASSERT_EQUAL(200, badge_http_server_handle(&http_server, &get_profile, response));
+    TEST_ASSERT_NOT_NULL(strstr((char *)response_body, "\"shape\":\"rounded\""));
 
     body_reader_t second_reader = {body, body_length, 0, 997, 0};
     badge_http_request_t second_request = post_request(&second_reader, "0000000012345678",
@@ -350,6 +406,17 @@ static void test_server_rejects_headers_busy_and_truncated_body(void) {
     TEST_ASSERT_TRUE(badge_store_snapshot(&profile_store)->is_default);
 }
 
+static void test_server_maps_invalid_shape_without_starting_store(void) {
+    body[10] = 3;
+    body_reader_t reader = {body, body_length, 0, 1024, 0};
+    badge_http_request_t request = post_request(&reader, "0000000012345678",
+                                                "application/octet-stream", body_length);
+    badge_http_response_t response = {NULL, capture_response};
+    TEST_ASSERT_EQUAL(422, badge_http_server_handle(&http_server, &request, response));
+    TEST_ASSERT_NOT_NULL(strstr((char *)response_body, "invalid_shape"));
+    TEST_ASSERT_TRUE(badge_store_snapshot(&profile_store)->is_default);
+}
+
 static void test_server_failed_success_response_does_not_close_hotspot(void) {
     body_reader_t reader = {body, body_length, 0, 1024, 0};
     badge_http_request_t request = post_request(&reader, "0000000012345678",
@@ -366,15 +433,18 @@ int main(void) {
     UNITY_BEGIN();
     RUN_TEST(test_valid_body_one_byte_chunks_crosses_every_boundary);
     RUN_TEST(test_header_name_and_bio_split_positions);
-    RUN_TEST(test_v1_body_is_accepted_with_empty_bio);
+    RUN_TEST(test_all_shapes_reach_writer);
+    RUN_TEST(test_v1_and_v2_bodies_are_rejected_before_writer);
     RUN_TEST(test_token_and_content_length_rejected_before_writer);
     RUN_TEST(test_bad_header_lengths_and_invalid_name);
     RUN_TEST(test_truncated_timeout_cancel_and_extra_data);
     RUN_TEST(test_busy_write_and_finish_errors_abort);
     RUN_TEST(test_complete_then_out_of_contract_extra_is_rejected);
     RUN_TEST(test_server_get_routes_content_types_and_not_found);
+    RUN_TEST(test_server_profile_returns_all_shape_names);
     RUN_TEST(test_server_success_streams_commits_and_keeps_hotspot_active);
     RUN_TEST(test_server_rejects_headers_busy_and_truncated_body);
+    RUN_TEST(test_server_maps_invalid_shape_without_starting_store);
     RUN_TEST(test_server_failed_success_response_does_not_close_hotspot);
     return UNITY_END();
 }

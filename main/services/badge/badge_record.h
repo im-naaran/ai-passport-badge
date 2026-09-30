@@ -5,13 +5,16 @@
 #include <stdint.h>
 
 enum {
-    BADGE_RECORD_HEADER_SIZE = 40,
+    BADGE_RECORD_HEADER_SIZE = 44,
     BADGE_NAME_MAX_BYTES = 48,
     BADGE_BIO_MAX_BYTES = 96,
     BADGE_IMAGE_WIDTH = 200,
     BADGE_IMAGE_HEIGHT = 200,
     BADGE_IMAGE_STRIDE = 400,
     BADGE_IMAGE_BYTES = 80000,
+    BADGE_RECORD_PAYLOAD_CRC_OFFSET = 32,
+    BADGE_RECORD_HEADER_CRC_OFFSET = 36,
+    BADGE_RECORD_COMMIT_OFFSET = 40,
     BADGE_SLOT_SIZE = 0x20000,
     BADGE_PARTITION_SIZE = 0x40000,
 };
@@ -21,9 +24,12 @@ typedef enum {
 } badge_image_format_t;
 
 typedef enum {
-    BADGE_RECORD_SCHEMA_1 = 1,
-    BADGE_RECORD_SCHEMA_2 = 2,
-} badge_record_schema_t;
+    BADGE_PHOTO_SHAPE_SQUARE = 0,
+    BADGE_PHOTO_SHAPE_ROUNDED = 1,
+    BADGE_PHOTO_SHAPE_CIRCLE = 2,
+} badge_photo_shape_t;
+
+enum { BADGE_RECORD_SCHEMA = 3 };
 
 typedef struct {
     uint32_t sequence;
@@ -33,8 +39,8 @@ typedef struct {
     uint16_t height;
     uint16_t stride;
     uint32_t image_length;
-    uint16_t schema;
     uint16_t bio_length;
+    badge_photo_shape_t shape;
 } badge_record_meta_t;
 
 typedef struct {
@@ -46,6 +52,7 @@ typedef struct {
 
 bool badge_name_valid(const uint8_t *name, size_t length);
 bool badge_bio_valid(const uint8_t *bio, size_t length);
+bool badge_photo_shape_valid(badge_photo_shape_t shape);
 bool badge_sequence_newer(uint32_t candidate, uint32_t current);
 
 uint32_t badge_crc32_start(void);

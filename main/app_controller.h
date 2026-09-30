@@ -37,4 +37,5 @@ app_action_t app_controller_gesture(app_controller_t *controller, mode_key_t key
 app_action_t app_controller_wifi_changed(app_controller_t *controller);
 app_action_t app_controller_profile_updated(app_controller_t *controller,
                                             uint32_t sequence);
+app_action_t app_controller_personalization_updated(app_controller_t *controller);
 app_action_t app_controller_battery_result(app_controller_t *controller, int soc);

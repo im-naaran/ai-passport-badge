@@ -239,3 +239,10 @@ void badge_wifi_service_profile_updated(badge_wifi_service_t *service) {
     publish(service, BADGE_WIFI_EVENT_PROFILE_UPDATED);
     service->adapter.unlock(service->adapter.context);
 }
+
+void badge_wifi_service_personalization_updated(badge_wifi_service_t *service) {
+    if (!service) return;
+    service->adapter.lock(service->adapter.context);
+    publish(service, BADGE_WIFI_EVENT_PERSONALIZATION_UPDATED);
+    service->adapter.unlock(service->adapter.context);
+}

@@ -69,6 +69,12 @@ app_action_t app_controller_profile_updated(app_controller_t *controller,
     return request_render(controller, APP_ACTION_NONE);
 }
 
+app_action_t app_controller_personalization_updated(app_controller_t *controller) {
+    if (!controller || !controller->render) return APP_ACTION_NONE;
+    // HTTP only publishes an event; the application loop owns the later LVGL render.
+    return request_render(controller, APP_ACTION_NONE);
+}
+
 app_action_t app_controller_battery_result(app_controller_t *controller, int soc) {
     if (!controller || !controller->render || !controller->settings ||
         soc < 0 || soc > 100 ||

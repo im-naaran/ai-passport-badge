@@ -42,6 +42,7 @@ typedef enum {
     BADGE_WIFI_EVENT_CLIENT_CONNECTED,
     BADGE_WIFI_EVENT_CLIENT_DISCONNECTED,
     BADGE_WIFI_EVENT_PROFILE_UPDATED,
+    BADGE_WIFI_EVENT_PERSONALIZATION_UPDATED,
 } badge_wifi_event_type_t;
 
 typedef struct {
@@ -88,3 +89,4 @@ void badge_wifi_service_finish_upload(badge_wifi_service_t *service, bool commit
 void badge_wifi_service_response_finished(badge_wifi_service_t *service, int64_t now_us);
 void badge_wifi_service_on_station(badge_wifi_service_t *service, bool connected);
 void badge_wifi_service_profile_updated(badge_wifi_service_t *service);
+void badge_wifi_service_personalization_updated(badge_wifi_service_t *service);

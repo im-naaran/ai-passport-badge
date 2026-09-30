@@ -18,6 +18,7 @@
 #include "services/badge/badge_partition.h"
 #include "services/badge/badge_wifi_esp.h"
 #include "services/config/settings_store.h"
+#include "services/custom/custom_partition.h"
 #include "services/display/battery_schedule.h"
 #include "settings/settings_view.h"
 #include "ui_shell.h"
@@ -41,6 +42,8 @@ static QueueHandle_t s_battery_control;
 static settings_store_t s_settings_store;
 static badge_partition_t s_badge_partition;
 static badge_store_t s_badge_store;
+static custom_partition_t s_custom_partition;
+static custom_store_t s_custom_store;
 static badge_wifi_service_t s_wifi;
 static badge_http_server_t s_http;
 static badge_mode_t s_badge_mode;
@@ -177,6 +180,19 @@ static bool init_storage(void) {
         badge_store_init_defaults(&s_badge_store, badge_default_profile());
     if (partition != BADGE_STORE_OK)
         ESP_LOGW(TAG, "badge partition unavailable: %d; using read-only default", partition);
+
+    custom_store_backend_t custom_backend;
+    custom_store_result_t custom_partition =
+        custom_partition_open(&s_custom_partition, &custom_backend);
+    custom_store_result_t custom = custom_partition == CUSTOM_STORE_OK ?
+        custom_store_init(&s_custom_store, custom_backend) : CUSTOM_STORE_IO_ERROR;
+    if (custom_partition != CUSTOM_STORE_OK ||
+        (custom != CUSTOM_STORE_OK && custom != CUSTOM_STORE_EMPTY)) {
+        // Personalization is optional: an invalid partition degrades only this mode and API.
+        custom_store_init_empty(&s_custom_store);
+        ESP_LOGW(TAG, "custom partition unavailable: partition=%d store=%d; feature disabled",
+                 custom_partition, custom);
+    }
     return badge != BADGE_STORE_INVALID && badge != BADGE_STORE_IO_ERROR;
 }
 
@@ -184,6 +200,7 @@ static bool init_ui_and_services(void) {
     badge_wifi_service_init(&s_wifi, badge_wifi_esp_adapter());
     badge_http_server_init(&s_http, &s_badge_store, badge_http_embedded_assets(),
                            now_us, NULL);
+    badge_http_server_attach_personalization(&s_http, &s_custom_store);
     badge_wifi_service_attach_http(&s_wifi, badge_http_server_runtime(&s_http));
 
     s_settings_page = (settings_page_t){
@@ -194,7 +211,7 @@ static bool init_ui_and_services(void) {
         .hotspot_status = hotspot_status,
     };
     mode_t badge = badge_mode_descriptor(&s_badge_mode, &s_badge_store);
-    mode_t custom = custom_mode_descriptor(&s_custom_mode);
+    mode_t custom = custom_mode_descriptor(&s_custom_mode, &s_custom_store);
     mode_t settings = settings_page_descriptor(&s_settings_page);
     if (!mode_registry_init(&s_registry, badge, custom, settings) ||
         !navigation_init(&s_navigation, s_registry.business, 2,
@@ -268,6 +285,8 @@ void app_main(void) {
             if (wifi_event.type == BADGE_WIFI_EVENT_PROFILE_UPDATED) {
                 const badge_profile_snapshot_t *snapshot = badge_store_snapshot(&s_badge_store);
                 if (snapshot) app_controller_profile_updated(&s_controller, snapshot->sequence);
+            } else if (wifi_event.type == BADGE_WIFI_EVENT_PERSONALIZATION_UPDATED) {
+                app_controller_personalization_updated(&s_controller);
             } else {
                 app_controller_wifi_changed(&s_controller);
             }

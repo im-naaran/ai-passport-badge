@@ -47,8 +47,9 @@ void tearDown(void) {}
 static void test_registry_contains_exactly_two_business_pages(void) {
     fake_mode_t badge_state = {0}, settings_state = {0};
     mode_registry_t registry;
+    custom_store_t custom_store = {.available = true};
     custom_mode_t custom_state;
-    mode_t custom = custom_mode_descriptor(&custom_state);
+    mode_t custom = custom_mode_descriptor(&custom_state, &custom_store);
     TEST_ASSERT_TRUE(mode_registry_init(&registry,
         fake_descriptor(4, &badge_state), custom,
         fake_descriptor(100, &settings_state)));
@@ -56,10 +57,57 @@ static void test_registry_contains_exactly_two_business_pages(void) {
     TEST_ASSERT_EQUAL(4, registry.business[0].id);
     TEST_ASSERT_EQUAL(2, registry.business[1].id);
     TEST_ASSERT_EQUAL_STRING("个性化", registry.business[1].name);
-    TEST_ASSERT_NULL(registry.business[1].handle_key);
+    TEST_ASSERT_NOT_NULL(registry.business[1].handle_key);
     TEST_ASSERT_FALSE(registry.business[1].is_available(registry.business[1].context));
-    custom_mode_set_content_available(&custom_state, true);
+    custom_store.snapshots[0].occupied = true;
     TEST_ASSERT_TRUE(registry.business[1].is_available(registry.business[1].context));
+}
+
+static void test_custom_mode_cycles_only_occupied_slots_and_keeps_recent_slot(void) {
+    custom_store_t store = {.available = true};
+    store.snapshots[0].occupied = true;
+    store.snapshots[2].occupied = true;
+    custom_mode_t state;
+    mode_t mode = custom_mode_descriptor(&state, &store);
+    TEST_ASSERT_TRUE(mode.is_available(mode.context));
+    mode.enter(mode.context);
+    TEST_ASSERT_TRUE(state.current_slot_known);
+    TEST_ASSERT_EQUAL(0, state.current_slot);
+    TEST_ASSERT_EQUAL(MODE_STAY, mode.handle_key(mode.context, MODE_KEY_DOWN, 1));
+    TEST_ASSERT_EQUAL(2, state.current_slot);
+    TEST_ASSERT_EQUAL(MODE_STAY, mode.handle_key(mode.context, MODE_KEY_DOWN, 2));
+    TEST_ASSERT_EQUAL(0, state.current_slot);
+    TEST_ASSERT_EQUAL(MODE_STAY, mode.handle_key(mode.context, MODE_KEY_UP, 3));
+    TEST_ASSERT_EQUAL(2, state.current_slot);
+    TEST_ASSERT_EQUAL(MODE_STAY, mode.handle_key(mode.context, MODE_KEY_OK, 4));
+    TEST_ASSERT_EQUAL(2, state.current_slot);
+
+    store.snapshots[2].occupied = false;
+    mode.enter(mode.context);
+    TEST_ASSERT_EQUAL(0, state.current_slot);
+    mode.handle_key(mode.context, MODE_KEY_DOWN, 5);
+    TEST_ASSERT_EQUAL(0, state.current_slot);
+}
+
+static void test_custom_last_slot_clear_makes_settings_return_fall_back_to_badge(void) {
+    fake_mode_t badge_state = {0}, settings_state = {0};
+    custom_store_t store = {.available = true};
+    store.snapshots[1].occupied = true;
+    custom_mode_t custom_state;
+    mode_t business[] = {
+        fake_descriptor(4, &badge_state),
+        custom_mode_descriptor(&custom_state, &store),
+    };
+    mode_t settings = fake_descriptor(100, &settings_state);
+    navigation_t navigation;
+    TEST_ASSERT_TRUE(navigation_init(&navigation, business, 2, &settings));
+    navigation_key(&navigation, MODE_KEY_DOWN, true, 1);
+    TEST_ASSERT_EQUAL(2, navigation_active(&navigation)->id);
+    navigation_key(&navigation, MODE_KEY_OK, true, 2);
+    TEST_ASSERT_TRUE(navigation.settings_active);
+    store.snapshots[1].occupied = false;
+    navigation_key(&navigation, MODE_KEY_OK, false, 3);
+    TEST_ASSERT_EQUAL(4, navigation_active(&navigation)->id);
 }
 
 static void test_badge_mode_exposes_default_and_user_snapshots(void) {
@@ -67,7 +115,8 @@ static void test_badge_mode_exposes_default_and_user_snapshots(void) {
     badge_profile_snapshot_t defaults = {.name = "AI Passport", .image = &image,
         .width = BADGE_IMAGE_WIDTH, .height = BADGE_IMAGE_HEIGHT,
         .stride = BADGE_IMAGE_STRIDE, .image_format = BADGE_IMAGE_FORMAT_RGB565_LE,
-        .sequence = 0, .is_default = true, .bio = "我的 AI 身份"};
+        .sequence = 0, .is_default = true, .bio = "我的 AI 身份",
+        .shape = BADGE_PHOTO_SHAPE_SQUARE};
     badge_store_t store;
     TEST_ASSERT_EQUAL(BADGE_STORE_DEFAULTED,
                       badge_store_init_defaults(&store, defaults));
@@ -82,7 +131,8 @@ static void test_badge_mode_exposes_default_and_user_snapshots(void) {
     store.snapshot = (badge_profile_snapshot_t){.name = "张三", .image = &image,
         .width = BADGE_IMAGE_WIDTH, .height = BADGE_IMAGE_HEIGHT,
         .stride = BADGE_IMAGE_STRIDE, .image_format = BADGE_IMAGE_FORMAT_RGB565_LE,
-        .sequence = 9, .is_default = false, .bio = "保持好奇"};
+        .sequence = 9, .is_default = false, .bio = "保持好奇",
+        .shape = BADGE_PHOTO_SHAPE_ROUNDED};
     TEST_ASSERT_FALSE(badge_mode_snapshot(&badge)->is_default);
     TEST_ASSERT_EQUAL_STRING("张三", badge_mode_snapshot(&badge)->name);
     TEST_ASSERT_EQUAL(9, badge_mode_snapshot(&badge)->sequence);
@@ -183,6 +233,8 @@ int main(void) {
     UNITY_BEGIN();
     RUN_TEST(test_registry_contains_exactly_two_business_pages);
     RUN_TEST(test_badge_mode_exposes_default_and_user_snapshots);
+    RUN_TEST(test_custom_mode_cycles_only_occupied_slots_and_keeps_recent_slot);
+    RUN_TEST(test_custom_last_slot_clear_makes_settings_return_fall_back_to_badge);
     RUN_TEST(test_unavailable_mode_is_skipped_without_lifecycle_churn);
     RUN_TEST(test_settings_return_falls_back_when_previous_mode_becomes_unavailable);
     RUN_TEST(test_navigation_cycles_two_pages_and_returns_from_settings);

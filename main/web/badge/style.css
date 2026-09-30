@@ -8,8 +8,12 @@ h1 { margin: 0 0 8px; font-size: 30px; line-height: 1.2; }
 h2 { margin: 0 0 14px; font-size: 17px; }
 #connection { margin: 0; color: #5d687b; }
 .card { margin-bottom: 14px; padding: 18px; border: 1px solid #dce3ef; border-radius: 18px; background: rgba(255,255,255,.94); box-shadow: 0 8px 28px rgba(32,53,91,.08); }
+.tabs { display: flex; gap: 8px; margin: 0 0 14px; padding: 4px; border-radius: 14px; background: #dfe7f4; }
+.tab { flex: 1; padding: 0 10px; border: 0; background: transparent; color: #5d687b; }
+.tab.active { background: #fff; color: #254fae; box-shadow: 0 2px 8px rgba(32,53,91,.12); }
 .photo-card { text-align: center; }
 canvas { display: block; width: 200px; height: 200px; margin: 0 auto 16px; background: transparent; touch-action: none; }
+.custom-canvas { width: min(240px, 100%); height: auto; aspect-ratio: 3 / 4; background: #0b0f0e; }
 input[type="file"] { position: absolute; width: 1px; height: 1px; opacity: 0; }
 .file-button, button { display: inline-flex; min-height: 44px; align-items: center; justify-content: center; border-radius: 12px; font: inherit; font-weight: 700; cursor: pointer; }
 .file-button, .secondary { padding: 0 16px; border: 1px solid #cbd5e5; background: #fff; color: #25324a; }
@@ -19,13 +23,18 @@ input[type="file"] { position: absolute; width: 1px; height: 1px; opacity: 0; }
 .shape-picker legend { width: 100%; margin-bottom: 8px; color: #5d687b; text-align: left; }
 .shape-picker label { flex: 1; padding: 9px 4px; border: 1px solid #cbd5e5; border-radius: 10px; background: #fff; }
 .shape-picker input { margin-right: 4px; }
+.slot-picker { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; margin-bottom: 16px; }
+.slot { min-width: 0; min-height: 48px; padding: 6px 3px; border: 1px solid #cbd5e5; background: #fff; color: #46536a; font-size: 12px; line-height: 1.25; }
+.slot.active { border-color: #356ae6; background: #edf3ff; color: #254fae; }
 input[type="text"] { width: 100%; min-height: 48px; padding: 0 14px; border: 1px solid #bfcadc; border-radius: 12px; background: #fff; color: inherit; font: inherit; font-size: 17px; }
 input:focus { outline: 3px solid rgba(53,106,230,.18); border-color: #356ae6; }
 .hint, .counter { margin: 10px 0 0; color: #6b7484; font-size: 13px; }
 .counter { text-align: right; }
-.invalid, #message[data-kind="error"] { color: #b42318; }
-#message[data-kind="success"] { color: #087443; }
-#message { min-height: 22px; margin: 12px 2px; font-size: 14px; }
+.invalid, #message[data-kind="error"], #personalization-message[data-kind="error"] { color: #b42318; }
+#message[data-kind="success"], #personalization-message[data-kind="success"] { color: #087443; }
+#message, #personalization-message { min-height: 22px; margin: 12px 2px; font-size: 14px; }
 .primary { width: 100%; border: 0; background: #356ae6; color: #fff; font-size: 17px; }
+.danger { width: 100%; margin-top: 10px; border: 1px solid #e5aaa5; background: #fff; color: #b42318; }
 button:disabled { cursor: default; opacity: .45; }
+[hidden] { display: none !important; }
 @media (max-width: 340px) { main { padding-left: 10px; padding-right: 10px; } .card { padding: 14px; } }

@@ -22,16 +22,19 @@
         return { width: quarterTurn ? height : width, height: quarterTurn ? width : height };
     }
 
-    function coverGeometry(width, height, transform, outputSize = OUTPUT_SIZE) {
-        if (!(width > 0 && height > 0 && outputSize > 0)) throw new RangeError("invalid image size");
+    function coverGeometry(width, height, transform, outputWidth = OUTPUT_SIZE,
+                           outputHeight = outputWidth) {
+        if (!(width > 0 && height > 0 && outputWidth > 0 && outputHeight > 0))
+            throw new RangeError("invalid image size");
         const rotation = normalizedRotation(transform.rotation || 0);
         const rotated = rotatedSize(width, height, rotation);
         const zoom = clamp(Number(transform.zoom) || MIN_ZOOM, MIN_ZOOM, MAX_ZOOM);
-        const scale = Math.max(outputSize / rotated.width, outputSize / rotated.height) * zoom;
+        /* Rotation changes the source bounds before rectangular cover scaling is calculated. */
+        const scale = Math.max(outputWidth / rotated.width, outputHeight / rotated.height) * zoom;
         const renderedWidth = rotated.width * scale;
         const renderedHeight = rotated.height * scale;
-        const maxPanX = Math.max(0, (renderedWidth - outputSize) / 2);
-        const maxPanY = Math.max(0, (renderedHeight - outputSize) / 2);
+        const maxPanX = Math.max(0, (renderedWidth - outputWidth) / 2);
+        const maxPanY = Math.max(0, (renderedHeight - outputHeight) / 2);
         return {
             rotation,
             zoom,
@@ -78,38 +81,42 @@
         return dx * dx + dy * dy <= radius * radius;
     }
 
-    function shapePath(context, shape, outputSize) {
+    function shapePath(context, shape, outputWidth, outputHeight) {
         const normalized = normalizedShape(shape);
         context.beginPath();
         if (normalized === "square") {
-            context.rect(0, 0, outputSize, outputSize);
+            context.rect(0, 0, outputWidth, outputHeight);
         } else if (normalized === "circle") {
-            context.arc(outputSize / 2, outputSize / 2, outputSize / 2, 0, Math.PI * 2);
+            const radius = Math.min(outputWidth, outputHeight) / 2;
+            context.arc(outputWidth / 2, outputHeight / 2, radius, 0, Math.PI * 2);
         } else if (typeof context.roundRect === "function") {
-            context.roundRect(0, 0, outputSize, outputSize, ROUNDED_RADIUS);
+            context.roundRect(0, 0, outputWidth, outputHeight, ROUNDED_RADIUS);
         } else {
-            const radius = Math.min(ROUNDED_RADIUS, outputSize / 2);
+            const radius = Math.min(ROUNDED_RADIUS, outputWidth / 2, outputHeight / 2);
             context.moveTo(radius, 0);
-            context.lineTo(outputSize - radius, 0);
-            context.quadraticCurveTo(outputSize, 0, outputSize, radius);
-            context.lineTo(outputSize, outputSize - radius);
-            context.quadraticCurveTo(outputSize, outputSize, outputSize - radius, outputSize);
-            context.lineTo(radius, outputSize);
-            context.quadraticCurveTo(0, outputSize, 0, outputSize - radius);
+            context.lineTo(outputWidth - radius, 0);
+            context.quadraticCurveTo(outputWidth, 0, outputWidth, radius);
+            context.lineTo(outputWidth, outputHeight - radius);
+            context.quadraticCurveTo(outputWidth, outputHeight, outputWidth - radius, outputHeight);
+            context.lineTo(radius, outputHeight);
+            context.quadraticCurveTo(0, outputHeight, 0, outputHeight - radius);
             context.lineTo(0, radius);
             context.quadraticCurveTo(0, 0, radius, 0);
             context.closePath();
         }
     }
 
-    function renderCrop(context, image, transform, outputSize = OUTPUT_SIZE, shape = "square") {
-        const geometry = coverGeometry(image.width, image.height, transform, outputSize);
-        context.clearRect(0, 0, outputSize, outputSize);
+    function renderCrop(context, image, transform, outputWidth = OUTPUT_SIZE,
+                        outputHeight = outputWidth, shape = "square") {
+        const geometry = coverGeometry(image.width, image.height, transform,
+            outputWidth, outputHeight);
+        context.clearRect(0, 0, outputWidth, outputHeight);
         context.save();
         /* The clip is part of the final canvas pixels; CSS-only rounding would still upload a square. */
-        shapePath(context, shape, outputSize);
+        shapePath(context, shape, outputWidth, outputHeight);
         context.clip();
-        context.translate(outputSize / 2 + geometry.panX, outputSize / 2 + geometry.panY);
+        context.translate(outputWidth / 2 + geometry.panX,
+            outputHeight / 2 + geometry.panY);
         context.rotate(geometry.rotation * Math.PI / 180);
         /* Browsers normalize common EXIF orientation while decoding; rotation here is user-controlled. */
         context.drawImage(image, -image.width * geometry.scale / 2,
@@ -117,6 +124,14 @@
             image.height * geometry.scale);
         context.restore();
         return geometry;
+    }
+
+    function canvasPointerDelta(deltaX, deltaY, canvasWidth, canvasHeight,
+                                cssWidth, cssHeight) {
+        if (!(canvasWidth > 0 && canvasHeight > 0 && cssWidth > 0 && cssHeight > 0))
+            throw new RangeError("invalid canvas size");
+        /* Pointer events use CSS pixels; crop pan is expressed in backing-canvas pixels. */
+        return { x: deltaX * canvasWidth / cssWidth, y: deltaY * canvasHeight / cssHeight };
     }
 
     function rgbaToRgb565(rgba, pixelCount) {
@@ -174,6 +189,6 @@
     root.BadgeImage = {
         OUTPUT_SIZE, MIN_ZOOM, MAX_ZOOM, clamp, normalizedRotation, rotatedSize,
         ROUNDED_RADIUS, DEVICE_CANVAS_RGB, normalizedShape, shapeContains, coverGeometry, rotateTransform,
-        renderCrop, rgbaToRgb565, rgb565ToImageData, decodeFile,
+        renderCrop, canvasPointerDelta, rgbaToRgb565, rgb565ToImageData, decodeFile,
     };
 })(typeof globalThis !== "undefined" ? globalThis : window);

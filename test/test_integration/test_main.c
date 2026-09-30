@@ -73,6 +73,7 @@ static void test_storage_failures_keep_safe_defaults(void) {
         .image_format = BADGE_IMAGE_FORMAT_RGB565_LE,
         .is_default = true,
         .bio = "我的 AI 身份",
+        .shape = BADGE_PHOTO_SHAPE_SQUARE,
     };
     TEST_ASSERT_EQUAL(BADGE_STORE_DEFAULTED,
                       badge_store_init_defaults(&badge, defaults));
@@ -147,6 +148,9 @@ static void test_profile_wifi_and_settings_battery_events_coalesce_rendering(voi
 
     TEST_ASSERT_BITS_HIGH(APP_ACTION_RENDER,
         app_controller_wifi_changed(&fixture.controller));
+    display_render_policy_mark_rendered(&fixture.render);
+    TEST_ASSERT_BITS_HIGH(APP_ACTION_RENDER,
+        app_controller_personalization_updated(&fixture.controller));
 }
 
 int main(void) {

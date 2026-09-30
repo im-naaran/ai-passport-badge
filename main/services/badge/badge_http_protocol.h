@@ -3,9 +3,8 @@
 #include "badge_store.h"
 
 enum {
-    BADGE_HTTP_ENVELOPE_V1_HEADER_SIZE = 12,
-    BADGE_HTTP_ENVELOPE_HEADER_SIZE = 14,
-    BADGE_HTTP_ENVELOPE_VERSION = 2,
+    BADGE_HTTP_ENVELOPE_HEADER_SIZE = 16,
+    BADGE_HTTP_ENVELOPE_VERSION = 3,
     BADGE_HTTP_BODY_MAX = BADGE_HTTP_ENVELOPE_HEADER_SIZE + BADGE_NAME_MAX_BYTES +
                           BADGE_BIO_MAX_BYTES + BADGE_IMAGE_BYTES,
 };
@@ -18,6 +17,7 @@ typedef enum {
     BADGE_HTTP_ERROR_PROTOCOL,
     BADGE_HTTP_ERROR_NAME,
     BADGE_HTTP_ERROR_BIO,
+    BADGE_HTTP_ERROR_SHAPE,
     BADGE_HTTP_ERROR_BUSY,
     BADGE_HTTP_ERROR_STORAGE,
     BADGE_HTTP_ERROR_TRUNCATED,
@@ -45,7 +45,6 @@ typedef struct {
     size_t content_length;
     size_t received;
     uint8_t header[BADGE_HTTP_ENVELOPE_HEADER_SIZE];
-    size_t header_size;
     size_t header_received;
     char name[BADGE_NAME_MAX_BYTES + 1];
     size_t name_length;
@@ -53,13 +52,15 @@ typedef struct {
     char bio[BADGE_BIO_MAX_BYTES + 1];
     size_t bio_length;
     size_t bio_received;
+    badge_photo_shape_t shape;
     size_t image_received;
     bool writer_started;
     badge_http_result_t result;
 } badge_http_parser_t;
 
 void badge_http_envelope_header(uint8_t output[BADGE_HTTP_ENVELOPE_HEADER_SIZE],
-                                uint16_t name_length, uint16_t bio_length);
+                                uint16_t name_length, uint16_t bio_length,
+                                badge_photo_shape_t shape);
 badge_http_result_t badge_http_parser_init(badge_http_parser_t *parser, size_t content_length,
                                            uint64_t supplied_token, uint64_t expected_token,
                                            badge_http_writer_t writer);

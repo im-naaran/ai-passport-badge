@@ -72,6 +72,61 @@ static size_t json_escape(char *output, size_t capacity, const char *text) {
     return used;
 }
 
+static const char *shape_name(badge_photo_shape_t shape) {
+    switch (shape) {
+    case BADGE_PHOTO_SHAPE_SQUARE: return "square";
+    case BADGE_PHOTO_SHAPE_ROUNDED: return "rounded";
+    case BADGE_PHOTO_SHAPE_CIRCLE: return "circle";
+    default: return NULL;
+    }
+}
+
+typedef enum { SLOT_PATH_NO_MATCH, SLOT_PATH_INVALID, SLOT_PATH_VALID } slot_path_result_t;
+
+static slot_path_result_t parse_slot_path(const char *path, const char *prefix,
+                                          uint8_t *logical_slot) {
+    size_t prefix_length = strlen(prefix);
+    if (strncmp(path, prefix, prefix_length) != 0) return SLOT_PATH_NO_MATCH;
+    const char *suffix = path + prefix_length;
+    if (suffix[0] < '1' || suffix[0] > '3' || suffix[1] != '\0')
+        return SLOT_PATH_INVALID;
+    if (logical_slot) *logical_slot = (uint8_t)(suffix[0] - '1');
+    return SLOT_PATH_VALID;
+}
+
+static int custom_unavailable(badge_http_server_t *server, badge_http_response_t response) {
+    return !server->custom_store || !custom_store_available(server->custom_store) ?
+        send_error(response, 503, "storage_unavailable") : 0;
+}
+
+static int handle_custom_get(badge_http_server_t *server, const badge_http_request_t *request,
+                             badge_http_response_t response) {
+    if (strcmp(request->path, "/api/personalization") == 0) {
+        int unavailable = custom_unavailable(server, response);
+        if (unavailable) return unavailable;
+        char body[256];
+        int length = snprintf(body, sizeof(body),
+            "{\"slotCount\":3,\"width\":240,\"height\":320,\"imageBytes\":153600,"
+            "\"slots\":[{\"slot\":1,\"occupied\":%s},{\"slot\":2,\"occupied\":%s},"
+            "{\"slot\":3,\"occupied\":%s}]}",
+            custom_store_snapshot(server->custom_store, 0)->occupied ? "true" : "false",
+            custom_store_snapshot(server->custom_store, 1)->occupied ? "true" : "false",
+            custom_store_snapshot(server->custom_store, 2)->occupied ? "true" : "false");
+        return send_body(response, 200, "application/json; charset=utf-8", body, (size_t)length);
+    }
+    uint8_t slot;
+    slot_path_result_t path = parse_slot_path(request->path,
+                                              "/api/personalization/photo/", &slot);
+    if (path == SLOT_PATH_NO_MATCH) return 0;
+    if (path == SLOT_PATH_INVALID) return send_error(response, 422, "invalid_slot");
+    int unavailable = custom_unavailable(server, response);
+    if (unavailable) return unavailable;
+    const custom_slot_snapshot_t *snapshot = custom_store_snapshot(server->custom_store, slot);
+    if (!snapshot || !snapshot->occupied) return send_error(response, 404, "slot_empty");
+    return send_body(response, 200, "application/octet-stream", snapshot->image,
+                     CUSTOM_IMAGE_BYTES);
+}
+
 static int handle_get(badge_http_server_t *server, const badge_http_request_t *request,
                       badge_http_response_t response) {
     const badge_http_asset_t *asset = asset_for(server, request->path);
@@ -88,17 +143,21 @@ static int handle_get(badge_http_server_t *server, const badge_http_request_t *r
             (unsigned long long)server->session_token, status.client_count ? "true" : "false");
         return send_body(response, 200, "application/json; charset=utf-8", body, (size_t)length);
     }
+    int custom = handle_custom_get(server, request, response);
+    if (custom) return custom;
     const badge_profile_snapshot_t *profile = badge_store_snapshot(server->store);
     if (!profile) return send_error(response, 500, "storage_error");
     if (strcmp(request->path, "/api/profile") == 0) {
+        const char *shape = shape_name(profile->shape);
+        if (!shape) return send_error(response, 500, "storage_error");
         char escaped[BADGE_NAME_MAX_BYTES * 2 + 1];
         char escaped_bio[BADGE_BIO_MAX_BYTES * 2 + 1];
         json_escape(escaped, sizeof(escaped), profile->name);
         json_escape(escaped_bio, sizeof(escaped_bio), profile->bio);
-        char body[384];
+        char body[BADGE_NAME_MAX_BYTES * 2 + BADGE_BIO_MAX_BYTES * 2 + 128];
         int length = snprintf(body, sizeof(body),
-            "{\"name\":\"%s\",\"bio\":\"%s\",\"width\":%u,\"height\":%u,\"isDefault\":%s}",
-            escaped, escaped_bio, profile->width, profile->height,
+            "{\"name\":\"%s\",\"bio\":\"%s\",\"shape\":\"%s\",\"width\":%u,\"height\":%u,\"isDefault\":%s}",
+            escaped, escaped_bio, shape, profile->width, profile->height,
             profile->is_default ? "true" : "false");
         return send_body(response, 200, "application/json; charset=utf-8", body, (size_t)length);
     }
@@ -108,12 +167,112 @@ static int handle_get(badge_http_server_t *server, const badge_http_request_t *r
     return send_error(response, 404, "not_found");
 }
 
+static int custom_result_status(custom_store_result_t result, const char **code) {
+    switch (result) {
+    case CUSTOM_STORE_BUSY: *code = "busy"; return 409;
+    case CUSTOM_STORE_INVALID: *code = "invalid_request"; return 400;
+    case CUSTOM_STORE_IO_ERROR: *code = "storage_error"; return 500;
+    default: *code = "storage_error"; return 500;
+    }
+}
+
+static int custom_mutation_complete(badge_http_server_t *server,
+                                    badge_http_response_t response,
+                                    const char *body, size_t length,
+                                    bool publish_update) {
+    badge_wifi_service_finish_upload(server->wifi, true);
+    if (publish_update) badge_wifi_service_personalization_updated(server->wifi);
+    int sent = send_body(response, 200, "application/json; charset=utf-8", body, length);
+    if (sent == 200 && server->now_us)
+        badge_wifi_service_response_finished(server->wifi, server->now_us(server->clock_context));
+    return sent;
+}
+
+static int handle_custom_post(badge_http_server_t *server,
+                              const badge_http_request_t *request,
+                              badge_http_response_t response, uint8_t slot) {
+    int unavailable = custom_unavailable(server, response);
+    if (unavailable) return unavailable;
+    if (!request->content_type || strcmp(request->content_type, "application/octet-stream") != 0)
+        return send_error(response, 415, "invalid_content_type");
+    if (request->content_length != CUSTOM_IMAGE_BYTES)
+        return send_error(response, 400, "invalid_length");
+    uint64_t supplied = 0;
+    if (!parse_token(request->session_token, &supplied) || supplied != server->session_token)
+        return send_error(response, 403, "invalid_token");
+    if (!badge_wifi_service_begin_upload(server->wifi)) return send_error(response, 409, "busy");
+
+    custom_store_result_t result = custom_store_begin_update(server->custom_store, slot);
+    if (result != CUSTOM_STORE_OK) {
+        badge_wifi_service_finish_upload(server->wifi, false);
+        const char *code;
+        return send_error(response, custom_result_status(result, &code), code);
+    }
+    size_t received = 0;
+    uint8_t buffer[CUSTOM_STREAM_CHUNK_BYTES];
+    while (received < request->content_length) {
+        size_t capacity = request->content_length - received;
+        if (capacity > sizeof(buffer)) capacity = sizeof(buffer);
+        int count = request->read ? request->read(request->context, buffer, capacity) :
+                                    BADGE_HTTP_READ_ERROR;
+        if (count <= 0) {
+            custom_store_abort(server->custom_store);
+            badge_wifi_service_finish_upload(server->wifi, false);
+            return send_error(response, count == BADGE_HTTP_READ_TIMEOUT ? 408 : 400,
+                              count == BADGE_HTTP_READ_TIMEOUT ? "timeout" : "invalid_length");
+        }
+        result = custom_store_write(server->custom_store, buffer, (size_t)count);
+        if (result != CUSTOM_STORE_OK) {
+            custom_store_abort(server->custom_store);
+            badge_wifi_service_finish_upload(server->wifi, false);
+            const char *code;
+            return send_error(response, custom_result_status(result, &code), code);
+        }
+        received += (size_t)count;
+    }
+    result = custom_store_finish(server->custom_store);
+    if (result != CUSTOM_STORE_OK) {
+        custom_store_abort(server->custom_store);
+        badge_wifi_service_finish_upload(server->wifi, false);
+        const char *code;
+        return send_error(response, custom_result_status(result, &code), code);
+    }
+    static const char saved[] = "{\"ok\":true}";
+    return custom_mutation_complete(server, response, saved, sizeof(saved) - 1, true);
+}
+
+static int handle_delete(badge_http_server_t *server, const badge_http_request_t *request,
+                         badge_http_response_t response) {
+    uint8_t slot;
+    slot_path_result_t path = parse_slot_path(request->path,
+                                              "/api/personalization/slot/", &slot);
+    if (path == SLOT_PATH_NO_MATCH) return send_error(response, 404, "not_found");
+    if (path == SLOT_PATH_INVALID) return send_error(response, 422, "invalid_slot");
+    int unavailable = custom_unavailable(server, response);
+    if (unavailable) return unavailable;
+    if (request->content_length != 0) return send_error(response, 400, "invalid_length");
+    uint64_t supplied = 0;
+    if (!parse_token(request->session_token, &supplied) || supplied != server->session_token)
+        return send_error(response, 403, "invalid_token");
+    if (!badge_wifi_service_begin_upload(server->wifi)) return send_error(response, 409, "busy");
+    bool occupied = custom_store_snapshot(server->custom_store, slot)->occupied;
+    custom_store_result_t result = custom_store_clear(server->custom_store, slot);
+    if (result != CUSTOM_STORE_OK) {
+        badge_wifi_service_finish_upload(server->wifi, false);
+        const char *code;
+        return send_error(response, custom_result_status(result, &code), code);
+    }
+    static const char cleared[] = "{\"ok\":true,\"occupied\":false}";
+    return custom_mutation_complete(server, response, cleared, sizeof(cleared) - 1, occupied);
+}
+
 static int result_status(badge_http_result_t result, const char **code) {
     switch (result) {
     case BADGE_HTTP_ERROR_TOKEN: *code = "invalid_token"; return 403;
     case BADGE_HTTP_ERROR_BUSY: *code = "busy"; return 409;
     case BADGE_HTTP_ERROR_NAME: *code = "invalid_name"; return 422;
     case BADGE_HTTP_ERROR_BIO: *code = "invalid_bio"; return 422;
+    case BADGE_HTTP_ERROR_SHAPE: *code = "invalid_shape"; return 422;
     case BADGE_HTTP_ERROR_LENGTH:
     case BADGE_HTTP_ERROR_EXTRA_DATA: *code = "invalid_length"; return 400;
     case BADGE_HTTP_ERROR_TIMEOUT: *code = "timeout"; return 408;
@@ -124,6 +283,12 @@ static int result_status(badge_http_result_t result, const char **code) {
 
 static int handle_post(badge_http_server_t *server, const badge_http_request_t *request,
                        badge_http_response_t response) {
+    uint8_t slot;
+    slot_path_result_t custom_path = parse_slot_path(request->path,
+                                                     "/api/personalization/slot/", &slot);
+    if (custom_path == SLOT_PATH_INVALID) return send_error(response, 422, "invalid_slot");
+    if (custom_path == SLOT_PATH_VALID)
+        return handle_custom_post(server, request, response, slot);
     if (strcmp(request->path, "/api/profile") != 0) return send_error(response, 404, "not_found");
     if (!request->content_type || strcmp(request->content_type, "application/octet-stream") != 0)
         return send_error(response, 415, "invalid_content_type");
@@ -168,6 +333,11 @@ void badge_http_server_init(badge_http_server_t *server, badge_store_t *store,
                                    .clock_context = clock_context};
 }
 
+void badge_http_server_attach_personalization(badge_http_server_t *server,
+                                              custom_store_t *store) {
+    if (server) server->custom_store = store;
+}
+
 void badge_http_server_begin_session(badge_http_server_t *server,
                                      badge_wifi_service_t *wifi, uint64_t token) {
     if (!server) return;
@@ -183,8 +353,12 @@ int badge_http_server_handle(badge_http_server_t *server,
     /* A queued DHCP ACK only proves that the server handed a frame to the Wi-Fi stack.
      * Actual HTTP traffic proves that the phone accepted its address and can reach us. */
     badge_wifi_service_on_station(server->wifi, true);
-    return request->method == BADGE_HTTP_GET ? handle_get(server, request, response) :
-                                              handle_post(server, request, response);
+    switch (request->method) {
+    case BADGE_HTTP_GET: return handle_get(server, request, response);
+    case BADGE_HTTP_POST: return handle_post(server, request, response);
+    case BADGE_HTTP_DELETE: return handle_delete(server, request, response);
+    default: return send_error(response, 405, "method_not_allowed");
+    }
 }
 
 __attribute__((weak)) badge_http_assets_t badge_http_embedded_assets(void) {
@@ -234,10 +408,11 @@ static bool esp_send(void *context, int status, const char *content_type,
 static esp_err_t esp_handler(httpd_req_t *request) {
     badge_http_server_t *server = request->user_ctx;
     if ((request->method == HTTP_GET && strcmp(request->uri, "/") == 0) ||
-        request->method == HTTP_POST) {
+        request->method == HTTP_POST || request->method == HTTP_DELETE) {
+        const char *method = request->method == HTTP_GET ? "GET" :
+            (request->method == HTTP_POST ? "POST" : "DELETE");
         ESP_LOGI(TAG, "%s %s content_len=%u",
-                 request->method == HTTP_GET ? "GET" : "POST", request->uri,
-                 (unsigned)request->content_len);
+                 method, request->uri, (unsigned)request->content_len);
     }
     char content_type[40] = {0};
     char token[32] = {0};
@@ -247,7 +422,8 @@ static esp_err_t esp_handler(httpd_req_t *request) {
         httpd_req_get_hdr_value_str(request, "X-Passport-Session", token, sizeof(token));
     esp_request_context_t read_context = {.request = request};
     badge_http_request_t core = {
-        .method = request->method == HTTP_GET ? BADGE_HTTP_GET : BADGE_HTTP_POST,
+        .method = request->method == HTTP_GET ? BADGE_HTTP_GET :
+            (request->method == HTTP_DELETE ? BADGE_HTTP_DELETE : BADGE_HTTP_POST),
         .path = request->uri,
         .content_type = content_type,
         .session_token = token,
@@ -264,7 +440,11 @@ static bool runtime_start(void *context, badge_wifi_service_t *wifi) {
     uint64_t token = ((uint64_t)esp_random() << 32) | esp_random();
     badge_http_server_begin_session(server, wifi, token);
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
-    config.max_uri_handlers = 8;
+    /* A raw image upload nests socket receive and transactional Flash verification.
+       Keep explicit headroom above ESP-IDF's 4 KiB default for the worst path. */
+    config.stack_size = BADGE_HTTP_SERVER_TASK_STACK_BYTES;
+    config.max_uri_handlers = 12;
+    config.uri_match_fn = httpd_uri_match_wildcard;
     httpd_handle_t handle = NULL;
     esp_err_t result = httpd_start(&handle, &config);
     if (result != ESP_OK) {
@@ -275,6 +455,10 @@ static bool runtime_start(void *context, badge_wifi_service_t *wifi) {
         {"/", HTTP_GET}, {"/style.css", HTTP_GET}, {"/badge_image.js", HTTP_GET},
         {"/app.js", HTTP_GET}, {"/api/status", HTTP_GET}, {"/api/profile", HTTP_GET},
         {"/api/photo", HTTP_GET}, {"/api/profile", HTTP_POST},
+        {"/api/personalization", HTTP_GET},
+        {"/api/personalization/photo/*", HTTP_GET},
+        {"/api/personalization/slot/*", HTTP_POST},
+        {"/api/personalization/slot/*", HTTP_DELETE},
     };
     for (size_t i = 0; i < sizeof(routes) / sizeof(routes[0]); ++i) {
         httpd_uri_t uri = {.uri = routes[i].path, .method = routes[i].method,
@@ -288,7 +472,7 @@ static bool runtime_start(void *context, badge_wifi_service_t *wifi) {
         }
     }
     server->platform_handle = handle;
-    ESP_LOGI(TAG, "HTTP ready");
+    ESP_LOGI(TAG, "HTTP ready stack=%u", (unsigned)config.stack_size);
     return true;
 }
 

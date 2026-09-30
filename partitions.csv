@@ -4,3 +4,5 @@ phy_init, data, phy,     0xf000,   0x1000,
 factory,  app,  factory, 0x10000,  0x300000,
 badge_data,data, 0x40,    0x310000, 0x40000,
 cardid,   data, nvs,     0x356000, 0x4000,
+# Personalization data starts after the protected cardid partition; normal uploads never write it.
+custom_data,data, 0x41,   0x35a000, 0x100000,
