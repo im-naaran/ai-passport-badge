@@ -392,7 +392,7 @@ renderCrop(context, image, transform, outputWidth, outputHeight, shape)
 - `custom_data@0x35A000/0x100000`。
 - 普通 upload 镜像列表不包含三个数据分区。
 
-最后运行全量 native、Web、`git diff --check` 和 `/Users/naaran/.platformio/penv/bin/pio run`，记录 Flash/RAM 变化并检查 map 中仍无 BLE、ANCS、AMS、消息或音乐业务符号。
+最后运行全量 native、Web、`git diff --check` 和 `pio run`，记录 Flash/RAM 变化并检查 map 中仍无 BLE、ANCS、AMS、消息或音乐业务符号。
 
 ### 11.5 真机验收
 

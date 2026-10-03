@@ -50,7 +50,8 @@ app_action_t app_controller_gesture(app_controller_t *controller, mode_key_t key
             active->handle_key(active->context, key, now_us);
         return request_render(controller, APP_ACTION_HOTSPOT_EXIT);
     }
-    navigation_key(controller->navigation, key, long_press, now_us);
+    if (!navigation_key(controller->navigation, key, long_press, now_us))
+        return APP_ACTION_NONE;
     return request_render(controller, APP_ACTION_NAVIGATION);
 }
 
@@ -70,9 +71,12 @@ app_action_t app_controller_profile_updated(app_controller_t *controller,
 }
 
 app_action_t app_controller_personalization_updated(app_controller_t *controller) {
-    if (!controller || !controller->render) return APP_ACTION_NONE;
+    if (!controller || !controller->render || !controller->navigation)
+        return APP_ACTION_NONE;
     // HTTP only publishes an event; the application loop owns the later LVGL render.
-    return request_render(controller, APP_ACTION_NONE);
+    bool changed = navigation_reconcile_active(controller->navigation);
+    // A same-slot overwrite still needs redraw even when the active descriptor stays valid.
+    return request_render(controller, changed ? APP_ACTION_NAVIGATION : APP_ACTION_NONE);
 }
 
 app_action_t app_controller_battery_result(app_controller_t *controller, int soc) {

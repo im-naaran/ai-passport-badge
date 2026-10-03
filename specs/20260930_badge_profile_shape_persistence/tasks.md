@@ -42,7 +42,7 @@
 
 - 测试目标：锁定 44 字节 schema 3 header、三种形状、两类 CRC 和图片偏移，并证明旧 schema 安全拒绝。
 - 测试用例：在 `test_badge` 增加明确 header/payload 向量、三种 shape decode/validate、schema 1/2 reject、非法 shape 和损坏 CRC。
-- 执行命令：`/Users/naaran/.platformio/penv/bin/pio test -e native -f test_badge`。
+- 执行命令：`pio test -e native -f test_badge`。
 - 兜底检查：本任务不构建目标固件；聚焦 native 测试不能证明真实 Flash 行为。
 
 **人工验证关注点：** 无独立 UI；task-06 验证旧分区内容存在时设备回退默认工牌且不崩溃、不自动擦除。
@@ -82,7 +82,7 @@
 
 - 测试目标：验证 shape 与图片同事务、重启恢复和失败回退。
 - 测试用例：扩展 `test_badge` 的默认资料、save/reload、slot rotation、边界和故障注入；同步所有结构 fixture 的显式 shape。
-- 执行命令：`/Users/naaran/.platformio/penv/bin/pio test -e native -f test_badge`。
+- 执行命令：`pio test -e native -f test_badge`。
 - 兜底检查：native 内存后端不能证明物理 Flash 时序，留给 task-06。
 
 **人工验证关注点：** task-06 核对普通升级后旧资料回退、新资料保存、重启和断电边界；本任务不烧录。
@@ -122,7 +122,7 @@
 
 - 测试目标：直接验证 v3 布局、分块状态机、旧 version 拒绝、shape 错误与 profile JSON。
 - 测试用例：更新 `test_badge_http` 的 envelope helper 和每字节/每边界 feed；增加三种 shape、非法/保留字段、version 1/2 reject、GET JSON；复跑 personalization HTTP 防止路由回归。
-- 执行命令：`/Users/naaran/.platformio/penv/bin/pio test -e native -f test_badge_http`，随后运行 `-f test_personalization_http`。
+- 执行命令：`pio test -e native -f test_badge_http`，随后运行 `-f test_personalization_http`。
 - 兜底检查：host adapter 不证明真实 socket 时序或 HTTP 任务栈水位。
 
 **人工验证关注点：** task-06 使用内嵌新网页保存，确认无 `invalid_request`、重启或协议长度错误。
@@ -198,10 +198,10 @@
 
 **自动化验证：**
 
-- `/Users/naaran/.platformio/penv/bin/pio test -e native`
+- `pio test -e native`
 - `node --test test/web/badge_web.test.js`
 - `python3 tools/test_verify_partition_layout.py`
-- `/Users/naaran/.platformio/penv/bin/pio run`
+- `pio run`
 - `python3 tools/verify_partition_layout.py partitions.csv .pio/build/ai_passport_badge`
 - `git diff --check`
 - 目标构建只证明编译、链接和资源嵌入，不证明浏览器视觉与真实 Flash 恢复。

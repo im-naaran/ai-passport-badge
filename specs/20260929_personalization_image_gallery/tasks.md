@@ -90,7 +90,7 @@
 
 **自动化验证：**
 
-- `/Users/naaran/.platformio/penv/bin/pio test -e native -f test_custom`
+- `pio test -e native -f test_custom`
 - 覆盖正确图片、正确墓碑、每个头字段损坏、payload 损坏、未提交、槽号错配、sequence 回绕和边界偏移。
 
 **人工验证关注点：** 无；纯记录逻辑由 native 用例验证，Flash 行为在 task-04/12 验证。
@@ -135,7 +135,7 @@
 
 **自动化验证：**
 
-- `/Users/naaran/.platformio/penv/bin/pio test -e native -f test_custom`
+- `pio test -e native -f test_custom`
 - 覆盖首次保存、连续覆盖、A/B 轮换、三槽隔离、分块写、Busy、abort、读回失败、墓碑、幂等清空、清空失败回退和清空后再上传。
 
 **人工验证关注点：** task-12 执行真实 Flash 覆盖/清空/重启和断电恢复；native 内存后端不能证明物理 Flash 时序。
@@ -222,8 +222,8 @@
 
 **自动化验证：**
 
-- `/Users/naaran/.platformio/penv/bin/pio test -e native -f test_modes`
-- `/Users/naaran/.platformio/penv/bin/pio test -e native -f test_integration`
+- `pio test -e native -f test_modes`
+- `pio test -e native -f test_integration`
 - 新增 0/1/2/3 张、稀疏槽位、正反循环、动态保存、动态清空和最后一槽回退用例。
 
 **人工验证关注点：** task-12 用实体按键验证短按切图、长按切页和息屏首次按键只唤醒。
@@ -315,9 +315,9 @@
 
 **自动化验证：**
 
-- `/Users/naaran/.platformio/penv/bin/pio test -e native -f test_badge_http`
+- `pio test -e native -f test_badge_http`
 - 若拆组则同时运行 `-f test_personalization_http`。
-- `/Users/naaran/.platformio/penv/bin/pio test -e native -f test_badge_wifi`
+- `pio test -e native -f test_badge_wifi`
 - 覆盖 metadata/photo、路径负例、token、content type/length、分块边界、Busy、截断、超时、断连、store 失败、幂等 DELETE、事件和现有工牌回归。
 
 **人工验证关注点：** task-12 记录真实手机 153,600 字节上传耗时、断连提示和热点按键安全退出。
@@ -461,9 +461,9 @@
 
 **自动化验证：**
 
-- `/Users/naaran/.platformio/penv/bin/pio test -e native`
+- `pio test -e native`
 - `node --test test/web/badge_web.test.js`
-- `/Users/naaran/.platformio/penv/bin/pio run`
+- `pio run`
 - `python3 tools/verify_partition_layout.py partitions.csv .pio/build/ai_passport_badge`
 - `git diff --check`
 - 检查目标 size/map，并记录 firmware.bin SHA-256；构建只证明编译、链接和静态资源边界。

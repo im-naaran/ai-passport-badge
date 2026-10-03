@@ -44,49 +44,49 @@ static mode_t fake_descriptor(uint32_t id, fake_mode_t *state) {
 void setUp(void) {}
 void tearDown(void) {}
 
-static void test_registry_contains_exactly_two_business_pages(void) {
+static void test_registry_contains_badge_and_three_personalization_items(void) {
     fake_mode_t badge_state = {0}, settings_state = {0};
     mode_registry_t registry;
     custom_store_t custom_store = {.available = true};
-    custom_mode_t custom_state;
-    mode_t custom = custom_mode_descriptor(&custom_state, &custom_store);
+    custom_mode_t custom_state[CUSTOM_SLOT_COUNT];
+    mode_t custom[CUSTOM_SLOT_COUNT];
+    for (uint8_t slot = 0; slot < CUSTOM_SLOT_COUNT; ++slot)
+        custom[slot] = custom_mode_descriptor(&custom_state[slot], &custom_store, slot);
     TEST_ASSERT_TRUE(mode_registry_init(&registry,
         fake_descriptor(4, &badge_state), custom,
         fake_descriptor(100, &settings_state)));
-    TEST_ASSERT_EQUAL(2, sizeof(registry.business) / sizeof(registry.business[0]));
+    TEST_ASSERT_EQUAL(4, sizeof(registry.business) / sizeof(registry.business[0]));
     TEST_ASSERT_EQUAL(4, registry.business[0].id);
     TEST_ASSERT_EQUAL(2, registry.business[1].id);
-    TEST_ASSERT_EQUAL_STRING("个性化", registry.business[1].name);
-    TEST_ASSERT_NOT_NULL(registry.business[1].handle_key);
-    TEST_ASSERT_FALSE(registry.business[1].is_available(registry.business[1].context));
-    custom_store.snapshots[0].occupied = true;
-    TEST_ASSERT_TRUE(registry.business[1].is_available(registry.business[1].context));
+    TEST_ASSERT_EQUAL(5, registry.business[2].id);
+    TEST_ASSERT_EQUAL(6, registry.business[3].id);
+    TEST_ASSERT_EQUAL_STRING("个性化1", registry.business[1].name);
+    TEST_ASSERT_EQUAL_STRING("个性化2", registry.business[2].name);
+    TEST_ASSERT_EQUAL_STRING("个性化3", registry.business[3].name);
+    for (size_t i = 1; i < MODE_REGISTRY_BUSINESS_COUNT; ++i) {
+        TEST_ASSERT_NULL(registry.business[i].handle_key);
+        TEST_ASSERT_FALSE(registry.business[i].is_available(registry.business[i].context));
+        custom_store.snapshots[i - 1].occupied = true;
+        TEST_ASSERT_TRUE(registry.business[i].is_available(registry.business[i].context));
+    }
 }
 
-static void test_custom_mode_cycles_only_occupied_slots_and_keeps_recent_slot(void) {
+static void test_custom_modes_bind_fixed_slots_and_snapshots(void) {
     custom_store_t store = {.available = true};
     store.snapshots[0].occupied = true;
     store.snapshots[2].occupied = true;
-    custom_mode_t state;
-    mode_t mode = custom_mode_descriptor(&state, &store);
-    TEST_ASSERT_TRUE(mode.is_available(mode.context));
-    mode.enter(mode.context);
-    TEST_ASSERT_TRUE(state.current_slot_known);
-    TEST_ASSERT_EQUAL(0, state.current_slot);
-    TEST_ASSERT_EQUAL(MODE_STAY, mode.handle_key(mode.context, MODE_KEY_DOWN, 1));
-    TEST_ASSERT_EQUAL(2, state.current_slot);
-    TEST_ASSERT_EQUAL(MODE_STAY, mode.handle_key(mode.context, MODE_KEY_DOWN, 2));
-    TEST_ASSERT_EQUAL(0, state.current_slot);
-    TEST_ASSERT_EQUAL(MODE_STAY, mode.handle_key(mode.context, MODE_KEY_UP, 3));
-    TEST_ASSERT_EQUAL(2, state.current_slot);
-    TEST_ASSERT_EQUAL(MODE_STAY, mode.handle_key(mode.context, MODE_KEY_OK, 4));
-    TEST_ASSERT_EQUAL(2, state.current_slot);
-
-    store.snapshots[2].occupied = false;
-    mode.enter(mode.context);
-    TEST_ASSERT_EQUAL(0, state.current_slot);
-    mode.handle_key(mode.context, MODE_KEY_DOWN, 5);
-    TEST_ASSERT_EQUAL(0, state.current_slot);
+    custom_mode_t state[CUSTOM_SLOT_COUNT];
+    mode_t mode[CUSTOM_SLOT_COUNT];
+    for (uint8_t slot = 0; slot < CUSTOM_SLOT_COUNT; ++slot) {
+        mode[slot] = custom_mode_descriptor(&state[slot], &store, slot);
+        TEST_ASSERT_EQUAL(slot, state[slot].slot);
+        TEST_ASSERT_EQUAL_PTR(&store.snapshots[slot], custom_mode_snapshot(&state[slot]));
+    }
+    TEST_ASSERT_TRUE(mode[0].is_available(mode[0].context));
+    TEST_ASSERT_FALSE(mode[1].is_available(mode[1].context));
+    TEST_ASSERT_TRUE(mode[2].is_available(mode[2].context));
+    TEST_ASSERT_EQUAL(0, custom_mode_descriptor(&state[0], &store,
+                                                CUSTOM_SLOT_COUNT).id);
 }
 
 static void test_custom_last_slot_clear_makes_settings_return_fall_back_to_badge(void) {
@@ -96,13 +96,13 @@ static void test_custom_last_slot_clear_makes_settings_return_fall_back_to_badge
     custom_mode_t custom_state;
     mode_t business[] = {
         fake_descriptor(4, &badge_state),
-        custom_mode_descriptor(&custom_state, &store),
+        custom_mode_descriptor(&custom_state, &store, 1),
     };
     mode_t settings = fake_descriptor(100, &settings_state);
     navigation_t navigation;
     TEST_ASSERT_TRUE(navigation_init(&navigation, business, 2, &settings));
-    navigation_key(&navigation, MODE_KEY_DOWN, true, 1);
-    TEST_ASSERT_EQUAL(2, navigation_active(&navigation)->id);
+    navigation_key(&navigation, MODE_KEY_DOWN, false, 1);
+    TEST_ASSERT_EQUAL(5, navigation_active(&navigation)->id);
     navigation_key(&navigation, MODE_KEY_OK, true, 2);
     TEST_ASSERT_TRUE(navigation.settings_active);
     store.snapshots[1].occupied = false;
@@ -148,15 +148,15 @@ static void test_unavailable_mode_is_skipped_without_lifecycle_churn(void) {
     navigation_t navigation;
     TEST_ASSERT_TRUE(navigation_init(&navigation, business, 2, &settings));
     TEST_ASSERT_EQUAL(1, state[0].enters);
-    navigation_key(&navigation, MODE_KEY_UP, true, 1);
-    navigation_key(&navigation, MODE_KEY_DOWN, true, 2);
+    navigation_key(&navigation, MODE_KEY_UP, false, 1);
+    navigation_key(&navigation, MODE_KEY_DOWN, false, 2);
     TEST_ASSERT_EQUAL(4, navigation_active(&navigation)->id);
     TEST_ASSERT_EQUAL(1, state[0].enters);
     TEST_ASSERT_EQUAL(0, state[0].leaves);
     TEST_ASSERT_FALSE(navigation_activate(&navigation, 2));
 
     state[1].available = true;
-    navigation_key(&navigation, MODE_KEY_DOWN, true, 3);
+    navigation_key(&navigation, MODE_KEY_DOWN, false, 3);
     TEST_ASSERT_EQUAL(2, navigation_active(&navigation)->id);
     TEST_ASSERT_EQUAL(1, state[0].leaves);
     TEST_ASSERT_EQUAL(1, state[1].enters);
@@ -171,14 +171,14 @@ static void test_settings_return_falls_back_when_previous_mode_becomes_unavailab
     mode_t settings = fake_descriptor(100, &state[2]);
     navigation_t navigation;
     TEST_ASSERT_TRUE(navigation_init(&navigation, business, 2, &settings));
-    navigation_key(&navigation, MODE_KEY_DOWN, true, 1);
+    navigation_key(&navigation, MODE_KEY_DOWN, false, 1);
     navigation_key(&navigation, MODE_KEY_OK, true, 2);
     state[1].available = false;
     navigation_key(&navigation, MODE_KEY_OK, false, 3);
     TEST_ASSERT_EQUAL(4, navigation_active(&navigation)->id);
 }
 
-static void test_navigation_cycles_two_pages_and_returns_from_settings(void) {
+static void test_navigation_clicks_cycle_pages_and_long_ok_returns_from_settings(void) {
     fake_mode_t state[3] = {0};
     mode_t business[] = {fake_descriptor(4, &state[0]), fake_descriptor(2, &state[1])};
     mode_t settings = fake_descriptor(100, &state[2]);
@@ -186,32 +186,85 @@ static void test_navigation_cycles_two_pages_and_returns_from_settings(void) {
     TEST_ASSERT_TRUE(navigation_init(&navigation, business, 2, &settings));
     TEST_ASSERT_EQUAL(4, navigation_active(&navigation)->id);
 
-    navigation_key(&navigation, MODE_KEY_UP, true, 1);
+    TEST_ASSERT_TRUE(navigation_key(&navigation, MODE_KEY_UP, false, 1));
     TEST_ASSERT_EQUAL(2, navigation_active(&navigation)->id);
-    navigation_key(&navigation, MODE_KEY_DOWN, true, 2);
+    TEST_ASSERT_TRUE(navigation_key(&navigation, MODE_KEY_DOWN, false, 2));
     TEST_ASSERT_EQUAL(4, navigation_active(&navigation)->id);
-    navigation_key(&navigation, MODE_KEY_DOWN, true, 3);
-    navigation_key(&navigation, MODE_KEY_OK, true, 4);
+    TEST_ASSERT_TRUE(navigation_key(&navigation, MODE_KEY_DOWN, false, 3));
+    TEST_ASSERT_TRUE(navigation_key(&navigation, MODE_KEY_OK, true, 4));
     TEST_ASSERT_EQUAL(100, navigation_active(&navigation)->id);
     TEST_ASSERT_EQUAL(2, navigation.return_id);
     navigation_key(&navigation, MODE_KEY_OK, false, 5);
     TEST_ASSERT_EQUAL(2, navigation_active(&navigation)->id);
 }
 
-static void test_short_key_stays_and_activation_uses_stable_id(void) {
+static void test_display_noops_and_activation_uses_stable_id(void) {
     fake_mode_t state[3] = {0};
     mode_t business[] = {fake_descriptor(40, &state[0]), fake_descriptor(7, &state[1])};
     mode_t settings = fake_descriptor(99, &state[2]);
     navigation_t navigation;
     TEST_ASSERT_TRUE(navigation_init(&navigation, business, 2, &settings));
-    navigation_key(&navigation, MODE_KEY_DOWN, false, 1);
+    TEST_ASSERT_FALSE(navigation_key(&navigation, MODE_KEY_OK, false, 1));
     TEST_ASSERT_EQUAL(40, navigation_active(&navigation)->id);
-    TEST_ASSERT_EQUAL(1, state[0].keys);
+    TEST_ASSERT_EQUAL(0, state[0].keys);
+    TEST_ASSERT_FALSE(navigation_key(&navigation, MODE_KEY_UP, true, 2));
+    TEST_ASSERT_FALSE(navigation_key(&navigation, MODE_KEY_DOWN, true, 3));
+    TEST_ASSERT_EQUAL(40, navigation_active(&navigation)->id);
     TEST_ASSERT_TRUE(navigation_activate(&navigation, 7));
     TEST_ASSERT_EQUAL(7, navigation_active(&navigation)->id);
     TEST_ASSERT_FALSE(navigation_activate(&navigation, 99));
     navigation_render(&navigation);
     TEST_ASSERT_EQUAL(1, state[1].renders);
+}
+
+static void test_flat_navigation_starts_first_and_skips_unavailable_items(void) {
+    fake_mode_t state[5] = {0};
+    state[1].available = true;
+    state[2].available = false;
+    state[3].available = true;
+    mode_t business[] = {
+        fake_descriptor(4, &state[0]),
+        fake_descriptor(2, &state[1]),
+        fake_descriptor(5, &state[2]),
+        fake_descriptor(6, &state[3]),
+    };
+    for (size_t i = 1; i < 4; ++i) business[i].is_available = fake_available;
+    mode_t settings = fake_descriptor(100, &state[4]);
+    navigation_t navigation;
+    TEST_ASSERT_TRUE(navigation_init(&navigation, business, 4, &settings));
+    TEST_ASSERT_EQUAL(4, navigation_active(&navigation)->id);
+    TEST_ASSERT_TRUE(navigation_key(&navigation, MODE_KEY_DOWN, false, 1));
+    TEST_ASSERT_EQUAL(2, navigation_active(&navigation)->id);
+    TEST_ASSERT_TRUE(navigation_key(&navigation, MODE_KEY_DOWN, false, 2));
+    TEST_ASSERT_EQUAL(6, navigation_active(&navigation)->id);
+    TEST_ASSERT_TRUE(navigation_key(&navigation, MODE_KEY_DOWN, false, 3));
+    TEST_ASSERT_EQUAL(4, navigation_active(&navigation)->id);
+    TEST_ASSERT_TRUE(navigation_key(&navigation, MODE_KEY_UP, false, 4));
+    TEST_ASSERT_EQUAL(6, navigation_active(&navigation)->id);
+}
+
+static void test_reconcile_falls_back_only_when_active_item_is_unavailable(void) {
+    fake_mode_t state[3] = {0};
+    state[1].available = true;
+    mode_t business[] = {fake_descriptor(4, &state[0]), fake_descriptor(2, &state[1])};
+    business[1].is_available = fake_available;
+    mode_t settings = fake_descriptor(100, &state[2]);
+    navigation_t navigation;
+    TEST_ASSERT_TRUE(navigation_init(&navigation, business, 2, &settings));
+    TEST_ASSERT_FALSE(navigation_reconcile_active(&navigation));
+    TEST_ASSERT_TRUE(navigation_key(&navigation, MODE_KEY_DOWN, false, 1));
+    state[1].available = false;
+    TEST_ASSERT_TRUE(navigation_reconcile_active(&navigation));
+    TEST_ASSERT_EQUAL(4, navigation_active(&navigation)->id);
+    TEST_ASSERT_FALSE(navigation_reconcile_active(&navigation));
+
+    state[1].available = true;
+    TEST_ASSERT_TRUE(navigation_key(&navigation, MODE_KEY_DOWN, false, 2));
+    TEST_ASSERT_TRUE(navigation_key(&navigation, MODE_KEY_OK, true, 3));
+    state[1].available = false;
+    TEST_ASSERT_FALSE(navigation_reconcile_active(&navigation));
+    TEST_ASSERT_TRUE(navigation_key(&navigation, MODE_KEY_OK, false, 4));
+    TEST_ASSERT_EQUAL(4, navigation_active(&navigation)->id);
 }
 
 static void test_empty_and_duplicate_registries_are_rejected(void) {
@@ -226,19 +279,26 @@ static void test_empty_and_duplicate_registries_are_rejected(void) {
     state[0].available = false;
     TEST_ASSERT_FALSE(navigation_init(&navigation, unavailable, 1, &settings));
     mode_registry_t registry;
-    TEST_ASSERT_FALSE(mode_registry_init(&registry, duplicate[0], duplicate[1], settings));
+    mode_t custom[] = {
+        duplicate[1],
+        fake_descriptor(5, &state[1]),
+        fake_descriptor(6, &state[2]),
+    };
+    TEST_ASSERT_FALSE(mode_registry_init(&registry, duplicate[0], custom, settings));
 }
 
 int main(void) {
     UNITY_BEGIN();
-    RUN_TEST(test_registry_contains_exactly_two_business_pages);
+    RUN_TEST(test_registry_contains_badge_and_three_personalization_items);
     RUN_TEST(test_badge_mode_exposes_default_and_user_snapshots);
-    RUN_TEST(test_custom_mode_cycles_only_occupied_slots_and_keeps_recent_slot);
+    RUN_TEST(test_custom_modes_bind_fixed_slots_and_snapshots);
     RUN_TEST(test_custom_last_slot_clear_makes_settings_return_fall_back_to_badge);
     RUN_TEST(test_unavailable_mode_is_skipped_without_lifecycle_churn);
     RUN_TEST(test_settings_return_falls_back_when_previous_mode_becomes_unavailable);
-    RUN_TEST(test_navigation_cycles_two_pages_and_returns_from_settings);
-    RUN_TEST(test_short_key_stays_and_activation_uses_stable_id);
+    RUN_TEST(test_navigation_clicks_cycle_pages_and_long_ok_returns_from_settings);
+    RUN_TEST(test_display_noops_and_activation_uses_stable_id);
+    RUN_TEST(test_flat_navigation_starts_first_and_skips_unavailable_items);
+    RUN_TEST(test_reconcile_falls_back_only_when_active_item_is_unavailable);
     RUN_TEST(test_empty_and_duplicate_registries_are_rejected);
     return UNITY_END();
 }

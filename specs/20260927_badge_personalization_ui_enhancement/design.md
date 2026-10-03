@@ -372,7 +372,7 @@ battery task -> queue -> app_controller
 
 ### 11.3 目标构建与人工验收
 
-- 自动化兜底：`/Users/naaran/.platformio/penv/bin/pio test -e native`，然后串行执行 `/Users/naaran/.platformio/penv/bin/pio run`，避免共享 `.pio/build` 并发冲突。
+- 自动化兜底：`pio test -e native`，然后串行执行 `pio run`，避免共享 `.pio/build` 并发冲突。
 - LCD：全屏无旧 header 残留，照片 200×200，姓名/bio 间距和中文两行。
 - 按键：个性化为空时上下不切页；确认进入设置；设置返回工牌；息屏首击只唤醒。
 - 设置：电量位置、颜色、`--%`、四行光标和三个子页。

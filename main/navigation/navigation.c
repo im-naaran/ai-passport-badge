@@ -58,38 +58,56 @@ bool navigation_activate(navigation_t *n, uint32_t mode_id) {
     enter(navigation_active(n));
     return true;
 }
-void navigation_key(navigation_t *n, mode_key_t key, bool long_press, int64_t now) {
-    if ((unsigned)key > MODE_KEY_OK) return;
+bool navigation_key(navigation_t *n, mode_key_t key, bool long_press, int64_t now) {
+    if (!n || !n->modes || !n->count || !n->settings ||
+        (unsigned)key > MODE_KEY_OK)
+        return false;
     const mode_t *active = navigation_active(n);
-    if (long_press) {
-        // Consume every global long press before any local delete/save handler.
-        if (key == MODE_KEY_OK) {
-            leave(active);
-            if (!n->settings_active) n->return_id = active->id;
-            n->settings_active = true;
-            // Re-entering settings resets to its list and discards the editor draft.
-            enter(navigation_active(n));
-        } else {
-            size_t from = n->settings_active ? return_index(n) : n->index;
-            if (from == n->count) return;
-            size_t target = adjacent_available(n, from, key, n->settings_active);
-            // With one available business mode, business-page navigation is a true no-op.
-            if (target == n->count) return;
+    if (n->settings_active) {
+        if (long_press || !active->handle_key) return false;
+        if (active->handle_key(active->context, key, now) == MODE_RETURN) {
+            size_t target = return_index(n);
+            if (target == n->count) return false;
             leave(active);
             n->index = target;
             n->settings_active = false;
             enter(navigation_active(n));
         }
-        return;
+        return true;
     }
-    if (active->handle_key && active->handle_key(active->context, key, now) == MODE_RETURN && n->settings_active) {
-        size_t target = return_index(n);
-        if (target == n->count) return;
+
+    if (long_press) {
+        // Directional long presses are intentionally consumed: display navigation is click-only.
+        if (key != MODE_KEY_OK) return false;
         leave(active);
-        n->settings_active = false;
-        n->index = target;
+        n->return_id = active->id;
+        n->settings_active = true;
+        // Entering settings resets to its list and discards any unfinished editor draft.
         enter(navigation_active(n));
+        return true;
     }
+
+    if (key == MODE_KEY_OK) return false;
+    size_t target = adjacent_available(n, n->index, key, false);
+    // With one available display item, directional clicks are true lifecycle no-ops.
+    if (target == n->count) return false;
+    leave(active);
+    n->index = target;
+    enter(navigation_active(n));
+    return true;
+}
+
+bool navigation_reconcile_active(navigation_t *n) {
+    if (!n || !n->modes || !n->count || n->settings_active ||
+        n->index >= n->count || available(&n->modes[n->index]))
+        return false;
+    size_t target = first_available(n);
+    if (target == n->count) return false;
+    // Stable descriptors remain in place; reconciliation only changes an invalid active item.
+    leave(&n->modes[n->index]);
+    n->index = target;
+    enter(navigation_active(n));
+    return true;
 }
 void navigation_render(const navigation_t *n) {
     const mode_t *active = navigation_active(n);

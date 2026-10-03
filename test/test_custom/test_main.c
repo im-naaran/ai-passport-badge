@@ -265,7 +265,7 @@ static void test_clear_is_transactional_idempotent_and_reusable(void) {
 
     custom_store_t rebooted;
     TEST_ASSERT_EQUAL(CUSTOM_STORE_EMPTY, custom_store_init(&rebooted, backend()));
-    TEST_ASSERT_FALSE(custom_store_has_content(&rebooted));
+    TEST_ASSERT_EQUAL_HEX8(0, custom_store_occupied_mask(&rebooted));
     store = rebooted;
     save_image(2, 0x72);
     TEST_ASSERT_EQUAL(3, custom_store_snapshot(&store, 2)->sequence);
@@ -283,26 +283,11 @@ static void test_failed_clear_keeps_old_image(void) {
     TEST_ASSERT_TRUE(custom_store_snapshot(&rebooted, 1)->occupied);
 }
 
-static void test_sparse_slot_queries_skip_empty_and_single_is_noop(void) {
-    save_image(0, 0x91);
-    uint8_t slot = 99;
-    TEST_ASSERT_TRUE(custom_store_first_occupied(&store, &slot));
-    TEST_ASSERT_EQUAL(0, slot);
-    TEST_ASSERT_FALSE(custom_store_adjacent_occupied(&store, 0, 1, &slot));
-    save_image(2, 0x93);
-    TEST_ASSERT_TRUE(custom_store_adjacent_occupied(&store, 0, 1, &slot));
-    TEST_ASSERT_EQUAL(2, slot);
-    TEST_ASSERT_TRUE(custom_store_adjacent_occupied(&store, 0, -1, &slot));
-    TEST_ASSERT_EQUAL(2, slot);
-    TEST_ASSERT_TRUE(custom_store_adjacent_occupied(&store, 2, 1, &slot));
-    TEST_ASSERT_EQUAL(0, slot);
-}
-
 static void test_unavailable_store_is_empty_and_read_only(void) {
     custom_store_t unavailable;
     TEST_ASSERT_EQUAL(CUSTOM_STORE_EMPTY, custom_store_init_empty(&unavailable));
     TEST_ASSERT_FALSE(custom_store_available(&unavailable));
-    TEST_ASSERT_FALSE(custom_store_has_content(&unavailable));
+    TEST_ASSERT_EQUAL_HEX8(0, custom_store_occupied_mask(&unavailable));
     TEST_ASSERT_EQUAL(CUSTOM_STORE_IO_ERROR,
                       custom_store_begin_update(&unavailable, 0));
     TEST_ASSERT_EQUAL(CUSTOM_STORE_IO_ERROR, custom_store_clear(&unavailable, 0));
@@ -321,7 +306,6 @@ int main(void) {
     RUN_TEST(test_readback_and_commit_failures_never_publish);
     RUN_TEST(test_clear_is_transactional_idempotent_and_reusable);
     RUN_TEST(test_failed_clear_keeps_old_image);
-    RUN_TEST(test_sparse_slot_queries_skip_empty_and_single_is_noop);
     RUN_TEST(test_unavailable_store_is_empty_and_read_only);
     return UNITY_END();
 }

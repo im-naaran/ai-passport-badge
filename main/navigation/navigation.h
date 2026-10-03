@@ -11,5 +11,6 @@ typedef struct {
 bool navigation_init(navigation_t *, const mode_t *, size_t count, const mode_t *settings);
 const mode_t *navigation_active(const navigation_t *);
 bool navigation_activate(navigation_t *, uint32_t mode_id);
-void navigation_key(navigation_t *, mode_key_t, bool long_press, int64_t now_us);
+bool navigation_key(navigation_t *, mode_key_t, bool long_press, int64_t now_us);
+bool navigation_reconcile_active(navigation_t *);
 void navigation_render(const navigation_t *);

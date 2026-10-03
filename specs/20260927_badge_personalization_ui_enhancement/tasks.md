@@ -64,7 +64,7 @@
 
 **自动化验证：**
 
-- 运行聚焦 native：`/Users/naaran/.platformio/penv/bin/pio test -e native -f test_badge`。
+- 运行聚焦 native：`pio test -e native -f test_badge`。
 - 测试新增：schema 1 fixture、schema 2 encode/decode/CRC、bio 边界、双槽新旧选择、重启恢复和故障注入。
 - 本任务不以目标 build 作为唯一验证；build 留到 task-07/08。
 
@@ -111,9 +111,9 @@
 
 **自动化验证：**
 
-- 运行聚焦 native：`/Users/naaran/.platformio/penv/bin/pio test -e native -f test_badge_http`。
+- 运行聚焦 native：`pio test -e native -f test_badge_http`。
 - 覆盖 v1/v2 成功、1-byte chunks、所有边界 split、UTF-8 bio、JSON 转义及失败路径。
-- 复跑 task-01：`/Users/naaran/.platformio/penv/bin/pio test -e native -f test_badge`。
+- 复跑 task-01：`pio test -e native -f test_badge`。
 
 **人工验证关注点：** task-09 使用升级前可能缓存的旧网页和新网页分别保存；确认失败后旧工牌未变。
 
@@ -208,7 +208,7 @@
 **自动化验证：**
 
 - 运行 `rg -n "ui_shell_update|->name|->battery|0, 36|240, 284" components/ui_common main`，人工审查命中只允许无关字段或测试说明。
-- 运行受影响 native 模式测试：`/Users/naaran/.platformio/penv/bin/pio test -e native -f test_modes`。
+- 运行受影响 native 模式测试：`pio test -e native -f test_modes`。
 - 目标编译和真实布局在 task-07/09 验证；native 无法证明 LVGL 像素布局。
 
 **人工验证关注点：** task-09 检查冷启动、切页、息屏唤醒无旧 header 残影；照片、姓名和两行中英文 bio 不重叠、不越界。
@@ -257,7 +257,7 @@
 
 **自动化验证：**
 
-- 运行聚焦 native：`/Users/naaran/.platformio/penv/bin/pio test -e native -f test_modes`。
+- 运行聚焦 native：`pio test -e native -f test_modes`。
 - 新增单一可用、动态启用、不可用 activate、return fallback、全不可用 init 失败和生命周期计数用例。
 
 **人工验证关注点：** task-09 验证工牌页长按上/下无空白/闪烁，长按确认仍进设置，返回仍是工牌。
@@ -307,8 +307,8 @@
 **自动化验证：**
 
 - 运行聚焦测试：
-  - `/Users/naaran/.platformio/penv/bin/pio test -e native -f test_settings`
-  - `/Users/naaran/.platformio/penv/bin/pio test -e native -f test_integration`
+  - `pio test -e native -f test_settings`
+  - `pio test -e native -f test_integration`
 - 覆盖 -1/0/15/16/30/31/100 边界、值未变化、四行 cursor、业务页/设置页渲染请求差异。
 
 **人工验证关注点：** task-09 检查电量位置、颜色和 `--%`；进入编辑/WiFi 再返回列表显示最新值且不改变光标语义。
@@ -354,8 +354,8 @@
 
 **自动化验证：**
 
-- 先串行运行全量 native：`/Users/naaran/.platformio/penv/bin/pio test -e native`。
-- native 完成后运行目标构建：`/Users/naaran/.platformio/penv/bin/pio run`。
+- 先串行运行全量 native：`pio test -e native`。
+- native 完成后运行目标构建：`pio run`。
 - 记录用例总数、失败项、Flash/RAM 使用；若构建因环境而非代码失败，保存完整错误证据，不声明通过。
 - 检查 map/源码依赖中没有新增 BLE、ANCS、AMS、消息或音乐模块。
 
@@ -400,8 +400,8 @@
 **自动化验证：**
 
 1. Web Node 测试命令（由 task-03 确定）。
-2. `/Users/naaran/.platformio/penv/bin/pio test -e native`。
-3. `/Users/naaran/.platformio/penv/bin/pio run`。
+2. `pio test -e native`。
+3. `pio run`。
 4. `git diff --check`。
 5. `rg` 检查外部 Web URL、旧公共 header 接线、受保护地址和范围外模块。
 
@@ -434,7 +434,7 @@
 **执行前置：**
 
 - 需要用户明确授权烧录，并先只读识别实际串口设备。
-- 使用 `/Users/naaran/.platformio/penv/bin/pio` 普通 upload；解析并核对写入 offset。
+- 使用 `pio` 普通 upload；解析并核对写入 offset。
 - 禁止全片擦除、禁止直接把 app 镜像写到 `0x0`、禁止覆盖 NVS、`badge_data@0x310000/0x40000` 或 `cardid@0x356000/0x4000`。
 
 **完成标准：**

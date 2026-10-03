@@ -17,7 +17,7 @@
 - 网络：ESP-IDF SoftAP、DHCP、HTTP Server；手机连接热点后访问 `http://192.168.4.1/`。
 - Web：固件内嵌离线 HTML/CSS/原生 JavaScript；浏览器负责图片解码、裁剪、拖动、缩放、旋转及 RGB565 LE 转换。
 - 存储：工牌资料位于 `badge_data@0x310000/0x40000`；设备身份位于 `cardid@0x356000/0x4000`；普通上传不得擦除 NVS、`badge_data` 或 `cardid`。
-- 自动化：PlatformIO native + Unity 覆盖纯 C 逻辑，Node 测试覆盖 Web 图片和协议逻辑，目标构建使用 `/Users/naaran/.platformio/penv/bin/pio run`。
+- 自动化：PlatformIO native + Unity 覆盖纯 C 逻辑，Node 测试覆盖 Web 图片和协议逻辑，目标构建使用 `pio run`。
 
 ## 当前相关架构
 

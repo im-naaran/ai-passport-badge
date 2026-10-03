@@ -22,6 +22,8 @@ static mode_t plain_mode(uint32_t id, const char *name) {
     return (mode_t){.id = id, .name = name};
 }
 
+static bool mode_available(void *context) { return *(bool *)context; }
+
 typedef struct {
     settings_store_t store;
     settings_page_t settings;
@@ -31,6 +33,7 @@ typedef struct {
     display_activity_t display;
     display_render_policy_t render;
     app_controller_t controller;
+    bool personalization_available;
 } fixture_t;
 
 static void fixture_init(fixture_t *fixture) {
@@ -41,8 +44,11 @@ static void fixture_init(fixture_t *fixture) {
         .config = &fixture->store,
         .stop_hotspot = stop_hotspot,
     };
+    fixture->personalization_available = true;
     fixture->business[0] = plain_mode(4, "工牌");
     fixture->business[1] = plain_mode(2, "个性化");
+    fixture->business[1].context = &fixture->personalization_available;
+    fixture->business[1].is_available = mode_available;
     fixture->settings_mode = settings_page_descriptor(&fixture->settings);
     TEST_ASSERT_TRUE(navigation_init(&fixture->navigation, fixture->business, 2,
                                      &fixture->settings_mode));
@@ -153,11 +159,60 @@ static void test_profile_wifi_and_settings_battery_events_coalesce_rendering(voi
         app_controller_personalization_updated(&fixture.controller));
 }
 
+static void test_display_navigation_renders_only_for_effective_actions(void) {
+    fixture_t fixture;
+    fixture_init(&fixture);
+    app_action_t changed = app_controller_gesture(&fixture.controller,
+                                                   MODE_KEY_DOWN, 2u, false, 1);
+    TEST_ASSERT_BITS_HIGH(APP_ACTION_NAVIGATION | APP_ACTION_RENDER, changed);
+    TEST_ASSERT_EQUAL(2, navigation_active(&fixture.navigation)->id);
+    display_render_policy_mark_rendered(&fixture.render);
+
+    TEST_ASSERT_EQUAL(APP_ACTION_NONE,
+        app_controller_gesture(&fixture.controller, MODE_KEY_DOWN, 2u, true, 2));
+    TEST_ASSERT_EQUAL(APP_ACTION_NONE,
+        app_controller_gesture(&fixture.controller, MODE_KEY_OK, 4u, false, 3));
+    TEST_ASSERT_FALSE(display_render_policy_should_render(&fixture.render, true, false));
+}
+
+static void test_personalization_updates_reconcile_without_automatic_entry(void) {
+    fixture_t fixture;
+    fixture_init(&fixture);
+    fixture.personalization_available = false;
+    app_action_t upload = app_controller_personalization_updated(&fixture.controller);
+    TEST_ASSERT_BITS_LOW(APP_ACTION_NAVIGATION, upload);
+    TEST_ASSERT_BITS_HIGH(APP_ACTION_RENDER, upload);
+    TEST_ASSERT_EQUAL(4, navigation_active(&fixture.navigation)->id);
+    display_render_policy_mark_rendered(&fixture.render);
+
+    fixture.personalization_available = true;
+    upload = app_controller_personalization_updated(&fixture.controller);
+    TEST_ASSERT_BITS_LOW(APP_ACTION_NAVIGATION, upload);
+    TEST_ASSERT_EQUAL(4, navigation_active(&fixture.navigation)->id);
+    display_render_policy_mark_rendered(&fixture.render);
+
+    app_controller_gesture(&fixture.controller, MODE_KEY_DOWN, 2u, false, 4);
+    TEST_ASSERT_EQUAL(2, navigation_active(&fixture.navigation)->id);
+    display_render_policy_mark_rendered(&fixture.render);
+    app_action_t overwrite = app_controller_personalization_updated(&fixture.controller);
+    TEST_ASSERT_BITS_LOW(APP_ACTION_NAVIGATION, overwrite);
+    TEST_ASSERT_BITS_HIGH(APP_ACTION_RENDER, overwrite);
+    TEST_ASSERT_EQUAL(2, navigation_active(&fixture.navigation)->id);
+    display_render_policy_mark_rendered(&fixture.render);
+
+    fixture.personalization_available = false;
+    app_action_t cleared = app_controller_personalization_updated(&fixture.controller);
+    TEST_ASSERT_BITS_HIGH(APP_ACTION_NAVIGATION | APP_ACTION_RENDER, cleared);
+    TEST_ASSERT_EQUAL(4, navigation_active(&fixture.navigation)->id);
+}
+
 int main(void) {
     UNITY_BEGIN();
     RUN_TEST(test_storage_failures_keep_safe_defaults);
     RUN_TEST(test_wake_gesture_renders_before_business_input);
     RUN_TEST(test_hotspot_page_consumes_long_key_before_navigation);
     RUN_TEST(test_profile_wifi_and_settings_battery_events_coalesce_rendering);
+    RUN_TEST(test_display_navigation_renders_only_for_effective_actions);
+    RUN_TEST(test_personalization_updates_reconcile_without_automatic_entry);
     return UNITY_END();
 }

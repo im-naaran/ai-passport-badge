@@ -74,39 +74,6 @@ uint8_t custom_store_occupied_mask(const custom_store_t *store) {
     return mask;
 }
 
-bool custom_store_has_content(const custom_store_t *store) {
-    return custom_store_occupied_mask(store) != 0;
-}
-
-bool custom_store_first_occupied(const custom_store_t *store, uint8_t *logical_slot) {
-    if (!logical_slot) return false;
-    uint8_t mask = custom_store_occupied_mask(store);
-    for (uint8_t slot = 0; slot < CUSTOM_SLOT_COUNT; ++slot) {
-        if (mask & (uint8_t)(1u << slot)) {
-            *logical_slot = slot;
-            return true;
-        }
-    }
-    return false;
-}
-
-bool custom_store_adjacent_occupied(const custom_store_t *store, uint8_t from,
-                                    int direction, uint8_t *logical_slot) {
-    if (!logical_slot || from >= CUSTOM_SLOT_COUNT || (direction != -1 && direction != 1))
-        return false;
-    uint8_t mask = custom_store_occupied_mask(store);
-    for (uint8_t step = 1; step < CUSTOM_SLOT_COUNT; ++step) {
-        int candidate = (int)from + direction * step;
-        while (candidate < 0) candidate += CUSTOM_SLOT_COUNT;
-        candidate %= CUSTOM_SLOT_COUNT;
-        if (mask & (uint8_t)(1u << candidate)) {
-            *logical_slot = (uint8_t)candidate;
-            return true;
-        }
-    }
-    return false;
-}
-
 static custom_store_result_t begin_record(custom_store_t *store, uint8_t logical_slot,
                                           bool occupied) {
     if (!store || logical_slot >= CUSTOM_SLOT_COUNT) return CUSTOM_STORE_INVALID;

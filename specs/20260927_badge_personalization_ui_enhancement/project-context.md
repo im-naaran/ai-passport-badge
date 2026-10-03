@@ -16,7 +16,7 @@
 - UI：LVGL 9、`esp_lvgl_port`、项目内 `ui_common` 主题/页面壳和 16 px 中文字体。
 - 网络与存储：ESP-IDF SoftAP、HTTP Server、NVS、`badge_data@0x310000/0x40000` 双槽原始 Flash 记录。
 - Web：离线 HTML/CSS/原生 JavaScript，浏览器完成照片解码、裁剪、旋转和 RGB565 LE 转换。
-- 自动化：PlatformIO native + Unity 覆盖纯 C 逻辑，目标构建使用 `/Users/naaran/.platformio/penv/bin/pio run`；自动化不能替代 LCD、实体按键和手机浏览器验收。
+- 自动化：PlatformIO native + Unity 覆盖纯 C 逻辑，目标构建使用 `pio run`；自动化不能替代 LCD、实体按键和手机浏览器验收。
 
 ## 当前相关架构
 

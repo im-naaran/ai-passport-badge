@@ -51,10 +51,6 @@ bool custom_store_available(const custom_store_t *store);
 const custom_slot_snapshot_t *custom_store_snapshot(const custom_store_t *store,
                                                      uint8_t logical_slot);
 uint8_t custom_store_occupied_mask(const custom_store_t *store);
-bool custom_store_has_content(const custom_store_t *store);
-bool custom_store_first_occupied(const custom_store_t *store, uint8_t *logical_slot);
-bool custom_store_adjacent_occupied(const custom_store_t *store, uint8_t from,
-                                    int direction, uint8_t *logical_slot);
 
 custom_store_result_t custom_store_begin_update(custom_store_t *store, uint8_t logical_slot);
 custom_store_result_t custom_store_write(custom_store_t *store,

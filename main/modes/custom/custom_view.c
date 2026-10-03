@@ -36,9 +36,10 @@ static void render(void *context) {
     view->has_rendered = true;
 }
 
-void custom_view_init(mode_t *mode, lv_obj_t *parent) {
-    custom_mode_t *custom = mode ? mode->context : NULL;
-    if (!custom) return;
+void custom_view_init(mode_t *modes, size_t count, lv_obj_t *parent) {
+    if (!modes || !count) return;
+    for (size_t i = 0; i < count; ++i)
+        if (!modes[i].context) return;
     custom_view_t *view = lv_malloc_zeroed(sizeof(*view));
     if (!view) return;
     view->root = ui_page_create(parent);
@@ -46,6 +47,9 @@ void custom_view_init(mode_t *mode, lv_obj_t *parent) {
     lv_obj_set_pos(view->image, 0, 0);
     lv_obj_set_size(view->image, CUSTOM_IMAGE_WIDTH, CUSTOM_IMAGE_HEIGHT);
     lv_obj_clear_flag(view->image, LV_OBJ_FLAG_CLICKABLE);
-    custom->view = view;
-    mode->render = render;
+    // All slot descriptors share one full-screen page; only their fixed snapshot differs.
+    for (size_t i = 0; i < count; ++i) {
+        ((custom_mode_t *)modes[i].context)->view = view;
+        modes[i].render = render;
+    }
 }

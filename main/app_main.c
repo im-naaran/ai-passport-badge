@@ -47,7 +47,7 @@ static custom_store_t s_custom_store;
 static badge_wifi_service_t s_wifi;
 static badge_http_server_t s_http;
 static badge_mode_t s_badge_mode;
-static custom_mode_t s_custom_mode;
+static custom_mode_t s_custom_modes[CUSTOM_SLOT_COUNT];
 static settings_page_t s_settings_page;
 static mode_registry_t s_registry;
 static navigation_t s_navigation;
@@ -57,6 +57,9 @@ static app_controller_t s_controller;
 static ui_shell_t s_ui;
 static badge_view_t s_badge_view;
 static settings_view_t s_settings_view;
+
+_Static_assert((int)MODE_REGISTRY_CUSTOM_COUNT == (int)CUSTOM_SLOT_COUNT,
+               "navigation and storage must expose the same personalization slots");
 
 static int64_t now_us(void *context) {
     (void)context;
@@ -211,10 +214,14 @@ static bool init_ui_and_services(void) {
         .hotspot_status = hotspot_status,
     };
     mode_t badge = badge_mode_descriptor(&s_badge_mode, &s_badge_store);
-    mode_t custom = custom_mode_descriptor(&s_custom_mode, &s_custom_store);
+    mode_t custom[CUSTOM_SLOT_COUNT];
+    for (uint8_t slot = 0; slot < CUSTOM_SLOT_COUNT; ++slot)
+        custom[slot] = custom_mode_descriptor(&s_custom_modes[slot], &s_custom_store,
+                                               slot);
     mode_t settings = settings_page_descriptor(&s_settings_page);
     if (!mode_registry_init(&s_registry, badge, custom, settings) ||
-        !navigation_init(&s_navigation, s_registry.business, 2,
+        !navigation_init(&s_navigation, s_registry.business,
+                         MODE_REGISTRY_BUSINESS_COUNT,
                          &s_registry.system_settings))
         return false;
 
@@ -229,7 +236,7 @@ static bool init_ui_and_services(void) {
     if (!bsp_lvgl_lock(1000)) return false;
     ui_shell_init(&s_ui);
     badge_view_init(&s_badge_view, &s_badge_mode, &s_registry.business[0], s_ui.content);
-    custom_view_init(&s_registry.business[1], s_ui.content);
+    custom_view_init(&s_registry.business[1], CUSTOM_SLOT_COUNT, s_ui.content);
     settings_view_init(&s_settings_view, &s_settings_page,
                        &s_registry.system_settings, s_ui.content);
     navigation_render(&s_navigation);
